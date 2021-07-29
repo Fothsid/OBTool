@@ -1,0 +1,3 @@
+[submodule "libthanatos"]
+	path = libthanatos
+	url = https://github.com/Fothsid/libthanatos.git
