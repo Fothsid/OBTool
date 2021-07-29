@@ -297,9 +297,9 @@ static void CreateBindPoses(FbxScene* scene, OBNbd* nbd, std::vector<FbxNode*>& 
 		joints[i]->LclScaling.Set(FbxVector4(node->transform.scale[0], 
 											 node->transform.scale[1], 
 											 node->transform.scale[2]));
-		joints[i]->LclRotation.Set(FbxVector4((-node->transform.rotation[0] / M_PI) * 180.0f,
-											  (-node->transform.rotation[1] / M_PI) * 180.0f,
-											  (-node->transform.rotation[2] / M_PI) * 180.0f));
+		joints[i]->LclRotation.Set(FbxVector4((node->transform.rotation[0] / M_PI) * 180.0f,
+											  (node->transform.rotation[1] / M_PI) * 180.0f,
+											  (node->transform.rotation[2] / M_PI) * 180.0f));
 	}
 }
 
