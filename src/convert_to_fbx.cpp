@@ -160,7 +160,7 @@ void CreateMeshes(FbxScene* scene, OBMeshList* meshList,
 			for (int j = 0; j < m->colorList->list.size(); j++)
 			{
 				OBColor v = m->colorList->list[j];
-				FbxColor c(v.r / 255.0f, v.g / 255.0f, v.b / 255.0f, v.a / 255.0f);
+				FbxColor c(v.r, v.g, v.b, v.a);
 				vertexColorElement->GetDirectArray().Add(c);
 			}
 		}
