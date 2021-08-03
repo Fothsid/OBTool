@@ -113,8 +113,7 @@ uint32_t TIM2_GetClutColor(TIM2Image* img, int clutId, int id)
 	   and getting the right color id 
 		(CSM2 doesn't need rearranging)
 	*/
-	if (img->imageType == TIM2_INDEXED4 ||
-		img->imageType == TIM2_INDEXED8)
+	if (img->imageType == TIM2_INDEXED8)
 	{
 		int csm1 = img->clutType & 0x80 ? 0 : 1;
 		if (csm1)
@@ -188,7 +187,7 @@ uint32_t TIM2_GetTexel(TIM2Image* img, int mipmapLevel, int x, int y, int clutId
 		} break;
 		case TIM2_RGB24:    return ((*(uint32_t*)(&image[texelId * 3])) & 0x00FFFFFF) | 0xFF000000;
 		case TIM2_RGBA32:   return ((uint32_t*) image)[texelId]; break;
-		case TIM2_INDEXED4: return TIM2_GetClutColor(img, clutId, (x & 1) ? (image[texelId / 2] >> 4) : (image[texelId / 2] & 0x0F)); break;
+		case TIM2_INDEXED4: return TIM2_GetClutColor(img, clutId, (texelId & 1) ? (image[texelId / 2] >> 4) : (image[texelId / 2] & 0x0F)); break;
 		case TIM2_INDEXED8: return TIM2_GetClutColor(img, clutId, image[texelId]); break;
 	}
 	return 0;

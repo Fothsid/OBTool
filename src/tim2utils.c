@@ -28,9 +28,19 @@ int OutbreakTm2ToPng(void* input, const char* outputFileName)
 	
 	int clutCount = 1;
 	if (img->imageType == TIM2_INDEXED4)
+	{
+		printf("[tim2utils] INDEXED4\n");
 		clutCount = img->clutColorCount / 16;
+	}
 	else if (img->imageType == TIM2_INDEXED8)
+	{
 		clutCount = img->clutColorCount / 256;
+	}
+
+	if (clutCount > 1)
+	{
+		printf("[tim2utils] This TM2 file has %d palettes\n", clutCount);
+	}
 	
 	int c = 0;
 	size_t imageSize = img->imageWidth * img->imageHeight * 4;
