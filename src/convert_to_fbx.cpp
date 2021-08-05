@@ -256,7 +256,7 @@ void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
 					for (int b = 0; b < m->weightList->list[v].size(); b++)
 					{
 						if (m->weightList->list[v][b].bone == j)
-							cluster->AddControlPointIndex(v, m->weightList->list[v][b].weight);
+							cluster->AddControlPointIndex(v, m->weightList->list[v][b].weight / 100.0f);
 					}
 				}
 				cluster->SetTransformLinkMatrix(joints[m->jointRefList->list[j]]->EvaluateGlobalTransform());
