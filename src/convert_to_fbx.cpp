@@ -4,12 +4,9 @@
 #include <string>
 #include <fstream>
 #include <vector>
-#include <thanatos.h>
-
 #include <cmath>
-
-#define FBXSDK_SHARED
-#include <fbxsdk.h>
+#include <thanatos.h>
+#include "fbx.h"
 
 #define M_PI 3.14159265358979323846264338327950288
 
@@ -38,7 +35,7 @@ void CreateTextures(std::string output, FbxScene* scene, OBTextureList* texList,
 }
 
 void CreateMaterials(std::string output, FbxScene* scene, OBMaterialList* matList, 
-					std::vector<FbxSurfacePhong*>& materials,
+					std::vector<FbxSurfaceLambert*>& materials,
 					std::vector<FbxFileTexture*>& textures)
 {
 	for (int i = 0; i < matList->list.size(); i++)
@@ -46,7 +43,7 @@ void CreateMaterials(std::string output, FbxScene* scene, OBMaterialList* matLis
 		OBMaterial* m = &matList->list[i];
 
 		std::string matName = std::string("Material") + std::to_string(i);
-		FbxSurfacePhong* material = FbxSurfacePhong::Create(scene, matName.c_str());
+		FbxSurfaceLambert* material = FbxSurfaceLambert::Create(scene, matName.c_str());
 		
 		FbxDouble3 colorBlack(0.0, 0.0, 0.0);
 		FbxDouble3 ambient(m->ambient.r, m->ambient.g, m->ambient.b);
@@ -56,17 +53,18 @@ void CreateMaterials(std::string output, FbxScene* scene, OBMaterialList* matLis
 		material->Emissive.Set(colorBlack);
 		
 		material->Ambient.Set(ambient);
-		material->AmbientFactor.Set(m->ambient.a);
+		material->AmbientFactor.Set(1.0f);
 
 		material->Diffuse.Set(diffuse);
-		material->DiffuseFactor.Set(m->diffuse.a);
+		material->DiffuseFactor.Set(1.0f);
+		material->TransparencyFactor.Set(1.0f - m->diffuse.a);
 		material->Diffuse.ConnectSrcObject(textures[m->textures[0]]);
 		
-		material->Specular.Set(specular);
-		material->SpecularFactor.Set(m->specular.a);
+		/*material->Specular.Set(specular);
+		material->SpecularFactor.Set(1.0f);
+		material->Shininess.Set(m->specularDecay);*/
 		
 		material->ShadingModel.Set("Phong");
-		material->Shininess.Set(m->specularDecay);
 
 		materials[i] = material;
 	}
@@ -149,7 +147,7 @@ void CreateRenderAttribs(FbxScene* scene, FbxNode* meshNode, OBRenderAttribs* at
 }
 
 void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
-				std::vector<FbxSurfacePhong*>& materials, 
+				std::vector<FbxSurfaceLambert*>& materials, 
 				std::vector<FbxNode*>& joints)
 {
 	FbxMesh* mesh = FbxMesh::Create(scene, name);
@@ -255,7 +253,7 @@ void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
 				{
 					for (int b = 0; b < m->weightList->list[v].size(); b++)
 					{
-						if (m->weightList->list[v][b].bone == j)
+						if (m->weightList->list[v][b].id == j)
 							cluster->AddControlPointIndex(v, m->weightList->list[v][b].weight / 100.0f);
 					}
 				}
@@ -288,7 +286,7 @@ void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
 }
 
 void CreateMeshes(FbxScene* scene, OBMeshList* meshList, 
-				  std::vector<FbxSurfacePhong*>& materials, 
+				  std::vector<FbxSurfaceLambert*>& materials, 
 				  std::vector<FbxNode*>& joints,
 				  std::vector<FbxNode*>& meshes)
 {
@@ -309,8 +307,23 @@ void CreateMeshes(FbxScene* scene, OBMeshList* meshList,
 	}
 }
 
+void AddChildrenToHierarchy(std::vector<FbxNode*>& joints, OBNode* node)
+{
+	if (node->next)
+	{
+		joints[node->parent->localId]->AddChild(joints[node->next->localId]);
+		AddChildrenToHierarchy(joints, node->next);
+	}
+
+	if (node->child)
+	{
+		joints[node->localId]->AddChild(joints[node->child->localId]);
+		AddChildrenToHierarchy(joints, node->child);
+	}
+}
+
 void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList, 
-					std::vector<FbxSurfacePhong*>& materials,
+					std::vector<FbxSurfaceLambert*>& materials,
 					std::vector<FbxNode*>& joints,
 					std::vector<FbxNode*>& meshes)
 {
@@ -321,21 +334,18 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 		joints[i] = FbxNode::Create(scene, nodeName.c_str());
 	}
 
-	for (int i = 0; i < hie->nodeList.size(); i++)
-	{
-		if (hie->nodeList[i].parent)
-			joints[hie->nodeList[i].parent->localId]->AddChild(joints[i]);
-	}
-
 	for (int i = 0; i < hie->roots.size(); i++)
 	{
 		rootNode->AddChild(joints[hie->roots[i]->localId]);
+		AddChildrenToHierarchy(joints, hie->roots[i]);
 	}
 
 	for (int i = 0; i < hie->nodeList.size(); i++)
 	{
 		OBNode* node = &hie->nodeList[i];
 		FbxNode* fNode = joints[i];
+
+		fNode->SetUserDataPtr(node);
 
 		switch (node->getType())
 		{
@@ -371,14 +381,51 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 		}
 
 		fNode->LclTranslation.Set(FbxVector4(node->transform.translation[0], 
-														node->transform.translation[1], 
-														node->transform.translation[2]));
-
+											 node->transform.translation[1], 
+											 node->transform.translation[2]));
+	
 		FbxProperty groupProperty = FbxProperty::Create(fNode, FbxIntDT, "GroupId", "Node Group Id");
 		groupProperty.ModifyFlag(FbxPropertyFlags::eUserDefined, true);
 		groupProperty.Set(node->groupId);
 
 		joints[i] = fNode;
+	}
+
+	/* Hacky way to fix models with rotated bones */
+	for (int i = 0; i < hie->nodeList.size(); i++)
+	{
+		FbxNode* fNode = joints[i];
+	
+		if (fNode->GetSkeleton() && fNode->GetParent()->GetUserDataPtr())
+		{
+			OBNode* node = (OBNode*) fNode->GetParent()->GetUserDataPtr();
+			FbxAMatrix parentMatrix = fNode->GetParent()->EvaluateGlobalTransform();
+			parentMatrix.SetTRS(FbxVector4(node->transform.translation[0], 
+										   node->transform.translation[1], 
+										   node->transform.translation[2]),
+								FbxVector4((node->transform.rotation[0] / M_PI) * 180.0f,
+										  (node->transform.rotation[1] / M_PI) * 180.0f,
+										  (node->transform.rotation[2] / M_PI) * 180.0f),
+								FbxVector4(node->transform.scale[0], 
+										 node->transform.scale[1], 
+										 node->transform.scale[2]));
+			while (node->parent)
+			{
+				node = node->parent;
+				FbxAMatrix matrix;
+				matrix.SetTRS(FbxVector4(node->transform.translation[0], 
+										 node->transform.translation[1], 
+										 node->transform.translation[2]),
+							  FbxVector4((node->transform.rotation[0] / M_PI) * 180.0f,
+										 (node->transform.rotation[1] / M_PI) * 180.0f,
+										 (node->transform.rotation[2] / M_PI) * 180.0f),
+							  FbxVector4(node->transform.scale[0], 
+										 node->transform.scale[1], 
+										 node->transform.scale[2]));
+				parentMatrix *= matrix;
+			}
+			fNode->LclTranslation.Set(parentMatrix * fNode->LclTranslation.Get());
+		}
 	}
 }
 
@@ -427,12 +474,12 @@ static void CreateBindPoses(FbxScene* scene, OBNbd* nbd, std::vector<FbxNode*>& 
 	for (int i = 0; i < joints.size(); i++)
 	{
 		OBNode* node = &nbd->ahi.nodeList[i];
-		joints[i]->LclScaling.Set(FbxVector4(node->transform.scale[0], 
-											 node->transform.scale[1], 
-											 node->transform.scale[2]));
 		joints[i]->LclRotation.Set(FbxVector4((node->transform.rotation[0] / M_PI) * 180.0f,
 											  (node->transform.rotation[1] / M_PI) * 180.0f,
 											  (node->transform.rotation[2] / M_PI) * 180.0f));
+		joints[i]->LclScaling.Set(FbxVector4(node->transform.scale[0],
+											 node->transform.scale[1],
+											 node->transform.scale[2]));
 	}
 }
 
@@ -440,7 +487,7 @@ static void FillScene(std::string output, FbxScene* scene, OBNbd* nbd)
 {
 	std::vector<FbxNode*> joints(nbd->ahi.nodeList.size());
 	std::vector<FbxFileTexture*> textures(nbd->amo.textureList->list.size());
-	std::vector<FbxSurfacePhong*> materials(nbd->amo.materialList->list.size());
+	std::vector<FbxSurfaceLambert*> materials(nbd->amo.materialList->list.size());
 	std::vector<FbxNode*> meshes(nbd->amo.meshList->list.size());
 	CreateTextures(output, scene, nbd->amo.textureList, textures);
 	CreateMaterials(output, scene, nbd->amo.materialList, materials, textures);
@@ -492,26 +539,26 @@ int CmdConvertToFBX(int count, char** argv)
 		output = output + "/";
 	output = output + path.stem().string();
 
-	FbxManager* lSdkManager = FbxManager::Create();
-	FbxIOSettings * ios = FbxIOSettings::Create(lSdkManager, IOSROOT);
-	lSdkManager->SetIOSettings(ios);
-	FbxExporter* lExporter = FbxExporter::Create(lSdkManager, "");
-	bool lExportStatus = lExporter->Initialize((output + ".fbx").c_str(), -1, lSdkManager->GetIOSettings());
+	FbxManager* sdkManager = FbxManager::Create();
+	FbxIOSettings * ios = FbxIOSettings::Create(sdkManager, IOSROOT);
+	sdkManager->SetIOSettings(ios);
+	FbxExporter* exporter = FbxExporter::Create(sdkManager, "");
+	bool exportStatus = exporter->Initialize((output + ".fbx").c_str(), -1, sdkManager->GetIOSettings());
 
-	FbxScene* lScene = FbxScene::Create(lSdkManager, "nbdScene");
-	FillScene(output, lScene, &nbd);
+	FbxScene* scene = FbxScene::Create(sdkManager, "nbdScene");
+	FillScene(output, scene, &nbd);
 	OutputTextures(output, nbd.textures);
 
-	lExporter->Export(lScene);
-	if (!lExportStatus)
+	exporter->Export(scene);
+	if (!exportStatus)
 	{
 		fprintf(stderr, "Call to FbxExporter::Initialize() failed.\n");
-		fprintf(stderr, "Error returned: %s\n\n", lExporter->GetStatus().GetErrorString());
+		fprintf(stderr, "Error returned: %s\n\n", exporter->GetStatus().GetErrorString());
 		return 0;
 	}
 
-	lExporter->Destroy();
-	lSdkManager->Destroy();
+	exporter->Destroy();
+	sdkManager->Destroy();
 
 	return 1;
 }

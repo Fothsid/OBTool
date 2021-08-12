@@ -19,9 +19,21 @@ set(SRC
 	src/commands.c
 	src/tim2.c
 	src/tim2utils.c
+	src/tristrip.cpp
 	src/convert_to_fbx.cpp
 	src/convert_to_nbd.cpp
+
+	# http://www.codercorner.com/Strips.htm
+	src/striper/Adjacency.cpp
+	src/striper/CustomArray.cpp
+	src/striper/RevisitedRadix.cpp
+	src/striper/StdAfx.cpp
+	src/striper/Striper.cpp
 	)
 
 add_executable(OBTool ${SRC})
 target_link_libraries(OBTool thanatos ${FbxSdk_LIBRARIES})
+target_compile_options(OBTool PRIVATE
+	$<$<CXX_COMPILER_ID:MSVC>:/wd4312 /wd4311>
+	$<$<NOT:$<CXX_COMPILER_ID:MSVC>>: -Wno-sign-conversion -Wno-narrowing>
+)

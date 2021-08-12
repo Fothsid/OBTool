@@ -25,48 +25,68 @@ int OutbreakTm2ToPng(void* input, const char* outputFileName)
 
 	int i = 0;	
 	TIM2Image* img = TIM2_GetImage((TIM2Header*) input, i);
-	
-	int clutCount = 1;
-	if (img->imageType == TIM2_INDEXED4)
+	if (img)
 	{
-		printf("[tim2utils] INDEXED4\n");
-		clutCount = img->clutColorCount / 16;
-	}
-	else if (img->imageType == TIM2_INDEXED8)
-	{
-		clutCount = img->clutColorCount / 256;
-	}
+		int clutCount = 1;
+		if (img->imageType == TIM2_INDEXED4)
+		{
+#if _DEBUG
+			printf("[tim2utils] INDEXED4\n");
+#endif
+			clutCount = img->clutColorCount / 16;
+		}
+		else if (img->imageType == TIM2_INDEXED8)
+		{
+			clutCount = img->clutColorCount / 256;
+		}
 
-	if (clutCount > 1)
-	{
-		printf("[tim2utils] This TM2 file has %d palettes\n", clutCount);
-	}
-	
-	int c = 0;
-	size_t imageSize = img->imageWidth * img->imageHeight * 4;
-	void* outputData = malloc(imageSize);
-	
-	TIM2_ConvToRGBA32(img, outputData, c);
-	
-	if (stbi_write_png(outputFileName, img->imageWidth, img->imageHeight, 4, outputData, 0) == 0)
-	{
-		fprintf(stderr, "[tim2utils] Failed to convert to PNG\n");
+		if (clutCount > 1)
+		{
+			printf("[tim2utils] This TM2 file has %d palettes\n", clutCount);
+		}
+
+		int c = 0;
+		size_t imageSize = img->imageWidth * img->imageHeight * 4;
+		void* outputData = malloc(imageSize);
+
+#if _DEBUG
+		printf("Width: %d\nHeight:%d\n", img->imageWidth, img->imageHeight);
+#endif
+
+		TIM2_ConvToRGBA32(img, outputData, c);
+
+		if (stbi_write_png(outputFileName, img->imageWidth, img->imageHeight, 4, outputData, 0) == 0)
+		{
+			fprintf(stderr, "[tim2utils] Failed to convert to PNG\n");
+			free(outputData);
+			return 0;
+		}
 		free(outputData);
-		return 0;
 	}
-	free(outputData);
+	else
+	{
+		printf("[tim2utils] Not a valid TIM2 image.\n");
+	}
 	return 1;
 }
 
-static void stb_to_tim2(void* input, int size, const char* output, uint16_t tbp)
+/*
+	TODO (VERY URGENT):
+		- DO ACTUAL COLOR REDUCTION!!!!!!!!!
+*/
+void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t* resultSize)
 {
 	int width, height, _chnlCount;
-	uint32_t* data = (uint32_t*) stbi_load_from_memory(input, size, &width, &height, &_chnlCount, 4);
+	uint32_t* data = (uint32_t*) stbi_load(input, &width, &height, &_chnlCount, 4);
 	if (!data)
 	{
-		printf("ERROR: stb_image failed to load the input file.\n");
-		exit(1);
+		return NULL;
 	}
+
+	if (x)
+		*x = width;
+	if (y)
+		*y = height;
 	
 	uint32_t resultFileSize = sizeof(TIM2Header) + sizeof(TIM2Image) +  width * height + 1024;
 	void* result = malloc(resultFileSize);
@@ -91,8 +111,6 @@ static void stb_to_tim2(void* input, int size, const char* output, uint16_t tbp)
 	img->imageType = TIM2_INDEXED8;
 	img->imageWidth = width;
 	img->imageHeight = height;
-	
-	printf("Width: %d\nHeight: %d\n", img->imageWidth, img->imageHeight);
 	
 	uint32_t* clut = TIM2_GetClutData(img);
 	uint8_t* image = (uint8_t*) TIM2_GetImageData(img, 0);
@@ -119,7 +137,9 @@ static void stb_to_tim2(void* input, int size, const char* output, uint16_t tbp)
 			if (clutColorId > 255)
 			{
 				printf("ERROR: The image contains more than 256 colors.\n");
-				exit(1);
+				free(data);
+				free(result);
+				return NULL;
 			}
 			image[px] = clutColorId;
 			clut[clutColorId] = data[px];
@@ -140,9 +160,8 @@ static void stb_to_tim2(void* input, int size, const char* output, uint16_t tbp)
 			clut[o3+j] = temp[j];
 		}
 	}
-	
-	
-	FILE* fp = fopen(output, "wb");
-	fwrite(result, resultFileSize, 1, fp);
-	fclose(fp);
+	free(data);
+	if (resultSize)
+		*resultSize = resultFileSize;
+	return result;
 }
