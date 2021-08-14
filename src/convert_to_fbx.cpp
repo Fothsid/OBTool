@@ -10,6 +10,11 @@
 
 #define M_PI 3.14159265358979323846264338327950288
 
+struct Tri
+{
+	int idx[3];
+};
+
 void CreateTextures(std::string output, FbxScene* scene, OBTextureList* texList, 
 							std::vector<FbxFileTexture*>& textures)
 {
@@ -64,41 +69,98 @@ void CreateMaterials(std::string output, FbxScene* scene, OBMaterialList* matLis
 		material->SpecularFactor.Set(1.0f);
 		material->Shininess.Set(m->specularDecay);*/
 		
-		material->ShadingModel.Set("Phong");
+		material->ShadingModel.Set("Lambert");
 
 		materials[i] = material;
 	}
 }
 
-void AddTStripListToMesh(FbxMesh* mesh, OBTStripList* list, int start, OBTStripMaterialList* mat)
+static void SortOutDuplicateVertices(std::vector<OBVertex>& vertices, std::vector<std::vector<OBWeight>>& weights, 
+									 OBVertexList* vertexList, OBWeightList* weightList)
+{
+	for (int i = 0; i < vertexList->list.size(); i++)
+	{
+		bool found = false;
+		for (int j = 0; j < vertices.size(); j++)
+		{
+			if (vertices[j] == vertexList->list[i] &&
+				weights[j] == weightList->list[i])
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+		{
+			vertices.push_back(vertexList->list[i]);
+			weights.push_back(weightList->list[i]);
+		}
+	}
+}
+
+template <typename T, typename L>
+static void SortOutDuplicates(std::vector<T>& result, L* list)
+{
+	for (int i = 0; i < list->list.size(); i++)
+	{
+		bool found = false;
+		for (int j = 0; j < result.size(); j++)
+		{
+			if (result[j] == list->list[i])
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+			result.push_back(list->list[i]);
+	}
+}
+
+template <typename T>
+static int FindElementIndex(std::vector<T>& list, T value)
+{
+	int foundId = -1;
+	for (int i = 0; i < list.size(); i++)
+	{
+		if (value == list[i])
+		{
+			foundId = i;
+			break;
+		}
+	}
+	return foundId;
+}
+
+void AddTStripListToMesh(FbxMesh* mesh, std::vector<OBVertex>& originalVertices, 
+						 std::vector<OBVertex>& vertices, std::vector<Tri>& triangles, 
+						 OBTStripList* list, int start, OBTStripMaterialList* mat)
 {
 	for (int tsi = 0; tsi < list->list.size(); tsi++)
 	{
 		OBTStrip* ts = &list->list[tsi];
 		for (uint32_t t = 0; t < ts->indices.size()-2; t++)
 		{
-			int ind[3];
-			/*
-				Ignoring the ts->leftHand flag, as using it results in broken normals
-				Maybe I simply don't understand something?
-			 */
+			Tri triangle;
 			if (t & 1)
 			{
-				ind[0] = ts->indices[t+0];
-				ind[1] = ts->indices[t+2];
-				ind[2] = ts->indices[t+1];
+				triangle.idx[0] = ts->indices[t+0];
+				triangle.idx[1] = ts->indices[t+2];
+				triangle.idx[2] = ts->indices[t+1];
 			}
 			else
 			{
-				ind[0] = ts->indices[t+0];
-				ind[1] = ts->indices[t+1];
-				ind[2] = ts->indices[t+2];
+				triangle.idx[0] = ts->indices[t+0];
+				triangle.idx[1] = ts->indices[t+1];
+				triangle.idx[2] = ts->indices[t+2];
 			}
 
+			triangles.push_back(triangle);
+
 			mesh->BeginPolygon(mat->list[start+tsi]);
-			mesh->AddPolygon(ind[0]);
-			mesh->AddPolygon(ind[1]);
-			mesh->AddPolygon(ind[2]);
+			mesh->AddPolygon(FindElementIndex(vertices, originalVertices[triangle.idx[0]]));
+			mesh->AddPolygon(FindElementIndex(vertices, originalVertices[triangle.idx[1]]));
+			mesh->AddPolygon(FindElementIndex(vertices, originalVertices[triangle.idx[2]]));
 			mesh->EndPolygon();
 		}
 	}
@@ -166,101 +228,18 @@ void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
 	 *	Vertices
 	 *
 	 */
-	mesh->InitControlPoints(m->vertexList->list.size());
+	std::vector<OBVertex> vertices;
+	std::vector<std::vector<OBWeight>> weights;
+	if (m->jointRefList && m->weightList)
+		SortOutDuplicateVertices(vertices, weights, m->vertexList, m->weightList);
+	else
+		SortOutDuplicates(vertices, m->vertexList);
+	mesh->InitControlPoints(vertices.size());
 	FbxVector4* controlPoints = mesh->GetControlPoints();
-	for (int j = 0; j < m->vertexList->list.size(); j++)
+	for (int i = 0; i < vertices.size(); i++)
 	{
-		OBVertex v = m->vertexList->list[j];
-		controlPoints[j].Set(v.x, v.y, v.z);
-	}
-
-	/*
-	 *
-	 *	Normals
-	 *
-	 */
-	if (m->normalList)
-	{
-		FbxLayerElementNormal* normalElement = FbxLayerElementNormal::Create(mesh, "");
-		normalElement->SetMappingMode(FbxGeometryElement::eByControlPoint);
-		normalElement->SetReferenceMode(FbxGeometryElement::eDirect);
-		for (int j = 0; j < m->normalList->list.size(); j++)
-		{
-			OBNormal v = m->normalList->list[j];
-			FbxVector4 n(v.x, v.y, v.z);
-			normalElement->GetDirectArray().Add(n);
-		}
-		layer->SetNormals(normalElement);
-	}
-
-	/*
-	 *
-	 *	Texture Coordinates
-	 *
-	 */
-	if (m->texCoordList)
-	{
-		FbxLayerElementUV* uvElement = FbxLayerElementUV::Create(mesh, "");
-		uvElement->SetMappingMode(FbxGeometryElement::eByControlPoint);
-		uvElement->SetReferenceMode(FbxGeometryElement::eDirect);
-		for (int j = 0; j < m->texCoordList->list.size(); j++)
-		{
-			OBTexCoord v = m->texCoordList->list[j];
-			FbxVector2 t(v.u, 1.0f - v.v);
-			uvElement->GetDirectArray().Add(t);
-		}
-		layer->SetUVs(uvElement);
-	}
-
-	/*
-	 *
-	 *	Color Vertices
-	 *
-	 */
-	if (m->colorList)
-	{
-		FbxLayerElementVertexColor* vertexColorElement = FbxLayerElementVertexColor::Create(mesh, "");
-		vertexColorElement->SetMappingMode(FbxGeometryElement::eByControlPoint);
-		vertexColorElement->SetReferenceMode(FbxGeometryElement::eDirect);
-		for (int j = 0; j < m->colorList->list.size(); j++)
-		{
-			OBColor v = m->colorList->list[j];
-			FbxColor c(v.r, v.g, v.b, v.a);
-			vertexColorElement->GetDirectArray().Add(c);
-		}
-		layer->SetVertexColors(vertexColorElement);
-	}
-
-	/*
-	 *
-	 *	Joint Weight
-	 *
-	 */
-	if (m->jointRefList)
-	{
-		FbxSkin* skin = FbxSkin::Create(scene, "");
-		mesh->AddDeformer(skin);
-
-		for (int j = 0; j < m->jointRefList->list.size(); j++)
-		{
-			/* This bound check is needed because apparently in OBJSxx.NBD bone ids go out of bounds..? go out of bounds? */
-			if (joints.size() > m->jointRefList->list[j])
-			{
-				FbxCluster* cluster = FbxCluster::Create(scene,"");
-				cluster->SetLink(joints[m->jointRefList->list[j]]);
-				cluster->SetLinkMode(FbxCluster::eTotalOne);
-				for (int v = 0; v < m->weightList->list.size(); v++)
-				{
-					for (int b = 0; b < m->weightList->list[v].size(); b++)
-					{
-						if (m->weightList->list[v][b].id == j)
-							cluster->AddControlPointIndex(v, m->weightList->list[v][b].weight / 100.0f);
-					}
-				}
-				cluster->SetTransformLinkMatrix(joints[m->jointRefList->list[j]]->EvaluateGlobalTransform());
-				skin->AddCluster(cluster);
-			}
-		}
+		OBVertex v = vertices[i];
+		controlPoints[i].Set(v.x, v.y, v.z);
 	}
 
 	/*
@@ -273,13 +252,133 @@ void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
 	materialElement->SetReferenceMode(FbxGeometryElement::eIndexToDirect);
 
 	OBTStripMaterialList* tsml = m->tStripMaterialList;
+	std::vector<Tri> triangles;
 
-	AddTStripListToMesh(mesh, &m->primLists->lists[0], 0, m->tStripMaterialList);
+	AddTStripListToMesh(mesh, m->vertexList->list, vertices, triangles, &m->primLists->lists[0], 0, m->tStripMaterialList);
 	if (m->primLists->lists.size() > 1)
-		AddTStripListToMesh(mesh, &m->primLists->lists[1], m->primLists->lists[0].list.size(), m->tStripMaterialList);
+		AddTStripListToMesh(mesh, m->vertexList->list, vertices, triangles, &m->primLists->lists[1], m->primLists->lists[0].list.size(), m->tStripMaterialList);
 
-	for (int j = 0; j < m->materialRefList->list.size(); j++)
-		meshNode->AddMaterial(materials[m->materialRefList->list[j]]);
+	for (int i = 0; i < m->materialRefList->list.size(); i++)
+		meshNode->AddMaterial(materials[m->materialRefList->list[i]]);
+
+	/*
+	 *
+	 *	Normals
+	 *
+	 */
+	if (m->normalList)
+	{
+		std::vector<OBNormal> normals;
+		SortOutDuplicates(normals, m->normalList);
+
+		FbxLayerElementNormal* normalElement = FbxLayerElementNormal::Create(mesh, "");
+		normalElement->SetMappingMode(FbxGeometryElement::eByPolygonVertex);
+		normalElement->SetReferenceMode(FbxGeometryElement::eIndexToDirect);
+		for (int i = 0; i < normals.size(); i++)
+		{
+			OBNormal v = normals[i];
+			FbxVector4 n(v.x, v.y, v.z);
+			normalElement->GetDirectArray().Add(n);
+		}
+		for (int i = 0; i < triangles.size(); i++)
+		{
+			Tri t = triangles[i];
+			for (int j = 0; j < 3; j++)
+				normalElement->GetIndexArray().Add(FindElementIndex(normals, m->normalList->list[t.idx[j]]));
+		}
+		layer->SetNormals(normalElement);
+	}
+
+	/*
+	 *
+	 *	Texture Coordinates
+	 *
+	 */
+
+	if (m->texCoordList)
+	{
+		std::vector<OBTexCoord> texCoords;
+		SortOutDuplicates(texCoords, m->texCoordList);
+
+		FbxLayerElementUV* uvElement = FbxLayerElementUV::Create(mesh, "");
+		uvElement->SetMappingMode(FbxGeometryElement::eByPolygonVertex);
+		uvElement->SetReferenceMode(FbxGeometryElement::eIndexToDirect);
+		for (int i = 0; i < texCoords.size(); i++)
+		{
+			OBTexCoord v = texCoords[i];
+			FbxVector2 tc(v.u, 1.0f - v.v);
+			uvElement->GetDirectArray().Add(tc);
+		}
+		for (int i = 0; i < triangles.size(); i++)
+		{
+			Tri t = triangles[i];
+			for (int j = 0; j < 3; j++)
+				uvElement->GetIndexArray().Add(FindElementIndex(texCoords, m->texCoordList->list[t.idx[j]]));
+		}
+		layer->SetUVs(uvElement);
+	}
+
+	/*
+	 *
+	 *	Color Vertices
+	 *
+	 */
+
+	if (m->colorList)
+	{
+		std::vector<OBColor> colors;
+		SortOutDuplicates(colors, m->colorList);
+
+		FbxLayerElementVertexColor* vertexColorElement = FbxLayerElementVertexColor::Create(mesh, "");
+		vertexColorElement->SetMappingMode(FbxGeometryElement::eByPolygonVertex);
+		vertexColorElement->SetReferenceMode(FbxGeometryElement::eIndexToDirect);
+		for (int i = 0; i < colors.size(); i++)
+		{
+			OBColor v = colors[i];
+			FbxColor c(v.r, v.g, v.b, v.a);
+			vertexColorElement->GetDirectArray().Add(c);
+		}
+		for (int i = 0; i < triangles.size(); i++)
+		{
+			Tri t = triangles[i];
+			for (int j = 0; j < 3; j++)
+				vertexColorElement->GetIndexArray().Add(FindElementIndex(colors, m->colorList->list[t.idx[j]]));
+		}
+		layer->SetVertexColors(vertexColorElement);
+	}
+
+
+	/*
+	 *
+	 *	Joint Weight
+	 *
+	 */
+	if (m->jointRefList && m->weightList)
+	{
+		FbxSkin* skin = FbxSkin::Create(scene, "");
+		mesh->AddDeformer(skin);
+
+		for (int j = 0; j < m->jointRefList->list.size(); j++)
+		{
+			/* This bound check is needed because apparently in OBJSxx.NBD bone ids go out of bounds..? */
+			if (joints.size() > m->jointRefList->list[j])
+			{
+				FbxCluster* cluster = FbxCluster::Create(scene,"");
+				cluster->SetLink(joints[m->jointRefList->list[j]]);
+				cluster->SetLinkMode(FbxCluster::eTotalOne);
+				for (int v = 0; v < weights.size(); v++)
+				{
+					for (int b = 0; b < weights[v].size(); b++)
+					{
+						if (weights[v][b].id == j)
+							cluster->AddControlPointIndex(v, weights[v][b].weight / 100.0f);
+					}
+				}
+				cluster->SetTransformLinkMatrix(joints[m->jointRefList->list[j]]->EvaluateGlobalTransform());
+				skin->AddCluster(cluster);
+			}
+		}
+	}
 
 	meshNode->SetNodeAttribute(mesh);
 

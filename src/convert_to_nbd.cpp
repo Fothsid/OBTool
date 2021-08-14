@@ -129,10 +129,15 @@ static void FillMaterials(OBModel& model, FbxScene* scene)
 		mat->diffuse.g = lambert->Diffuse.Get()[1];
 		mat->diffuse.b = lambert->Diffuse.Get()[2];
 		mat->diffuse.a = 1.0f ;//- lambert->TransparencyFactor.Get(); //lambert->DiffuseFactor.Get();
-		if (lambert->Diffuse.GetSrcObjectCount() > 0)
+		mat->textures.resize(1);
+		if (lambert->Diffuse.GetSrcObjectCount() > 0 && lambert->Diffuse.GetSrcObject())
 		{
-			mat->textures.resize(1);
 			mat->textures[0] = (int)lambert->Diffuse.GetSrcObject()->GetUserDataPtr();
+		}
+		else
+		{
+			printf("Warning: texture object not linked to the material. Forcing it to zero.");
+			mat->textures[0] = 0;
 		} 
 	}
 }
@@ -178,6 +183,7 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		FbxGeometryConverter gConv(sdkManager);
 		fbxMesh = (FbxMesh*) gConv.Triangulate(fbxMesh, true);
 	}
+	FbxAMatrix matrix = node->EvaluateGlobalTransform();
 
 	bool hasNormals = false, 
 		 hasUVs     = false, 
@@ -224,7 +230,6 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		mesh.jointRefList = new OBJointRefList();
 	}
 
-
 	std::vector<_Tri> triangles;
 	std::vector<Vertex> vertices;
 	for (int f = 0; f < fbxMesh->GetPolygonCount(); f++)
@@ -266,7 +271,7 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 				bool unmappedUV;
 				fbxMesh->GetPolygonVertexUV(f, v, elementUVName, t, unmappedUV);
 				tx = t[0];
-				ty = 1.0 - t[1];
+				ty = t[1];
 			}
 
 			float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
@@ -298,7 +303,10 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 						{
 							int vId = cluster->GetControlPointIndices()[j];
 							if (vId == vertexId)
+							{
 								vert.weights.push_back({(uint32_t) i, (float) cluster->GetControlPointWeights()[j]});
+								break;
+							}
 						}
 					}
 				}
@@ -315,13 +323,12 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 				});
 
 				vert.weights.resize(4);
+				float weightSum = 0.0f;
+				for (int i = 0; i < vert.weights.size(); i++)
+					weightSum += vert.weights[i].weight;
+				for (int i = 0; i < vert.weights.size(); i++)
+					vert.weights[i].weight = (vert.weights[i].weight / weightSum);
 			}
-			
-			float weightSum = 0.0f;
-			for (int i = 0; i < vert.weights.size(); i++)
-				weightSum += vert.weights[i].weight;
-			for (int i = 0; i < vert.weights.size(); i++)
-				vert.weights[i].weight = (vert.weights[i].weight / weightSum) * 100.0f;
 
 			bool found = false;
 			uint32_t fVert = 0;
@@ -372,6 +379,11 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		mesh.materialRefList->list[i] = (int) node->GetMaterial(i)->GetUserDataPtr();
 
 	int totalStripCount = sgList[0].size() + (sgList.size() > 1 ? sgList[1].size() : 0);
+	printf("\tTotal strip count: %d\n", (int) totalStripCount);
+	printf("\tFull weight strip count: %d\n", (int) sgList[0].size());
+	if (sgList.size() > 1)
+		printf("\tPart weight strip count: %d\n", (int) sgList[1].size());
+
 	mesh.tStripMaterialList = new OBTStripMaterialList();
 	mesh.tStripMaterialList->list.reserve(totalStripCount);
 	for (int i = 0; i < sgList[0].size(); i++)
@@ -380,13 +392,16 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		for (int i = 0; i < sgList[1].size(); i++)
 			mesh.tStripMaterialList->list.push_back(sgList[1][i].material);
 
+	
 	mesh.vertexList = new OBVertexList();
 	mesh.vertexList->list.resize(vertices.size());
 	for (int i = 0; i < vertices.size(); i++)
 	{
-		mesh.vertexList->list[i].x = vertices[i].x;
-		mesh.vertexList->list[i].y = vertices[i].y;
-		mesh.vertexList->list[i].z = vertices[i].z;
+		FbxVector4 pos(vertices[i].x, vertices[i].y, vertices[i].z);
+		pos = matrix.Inverse() * pos;
+		mesh.vertexList->list[i].x = pos[0];
+		mesh.vertexList->list[i].y = pos[1];
+		mesh.vertexList->list[i].z = pos[2];
 	}
 
 	
@@ -407,7 +422,7 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		for (int i = 0; i < vertices.size(); i++)
 		{
 			mesh.texCoordList->list[i].u = vertices[i].tx;
-			mesh.texCoordList->list[i].v = vertices[i].ty;
+			mesh.texCoordList->list[i].v = 1.0f - vertices[i].ty;
 		}
 	}
 	
@@ -422,20 +437,21 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 
 	if (hasWeights)
 	{		
-		if (skin->GetClusterCount() > 0)
+		mesh.weightList->list.resize(vertices.size());
+		for (int i = 0; i < vertices.size(); i++)
 		{
-			mesh.weightList->list.resize(vertices.size());
-			for (int i = 0; i < vertices.size(); i++)
+			mesh.weightList->list[i].resize(vertices[i].weights.size());
+			for (int j = 0; j < vertices[i].weights.size(); j++)
 			{
-				mesh.weightList->list[i].resize(vertices[i].weights.size());
-				for (int j = 0; j < vertices[i].weights.size(); j++)
-					mesh.weightList->list[i][j] = vertices[i].weights[j];
+				OBWeight w = vertices[i].weights[j];
+				w.weight *= 100.0f;
+				mesh.weightList->list[i][j] = w;
 			}
-			
-			mesh.jointRefList->list.resize(skin->GetClusterCount());
-			for (int i = 0; i < skin->GetClusterCount(); i++)
-				mesh.jointRefList->list[i] = (int) skin->GetCluster(i)->GetLink()->GetUserDataPtr();
 		}
+		
+		mesh.jointRefList->list.resize(skin->GetClusterCount());
+		for (int i = 0; i < skin->GetClusterCount(); i++)
+			mesh.jointRefList->list[i] = (int) skin->GetCluster(i)->GetLink()->GetUserDataPtr();
 	}
 	FillRenderAttributes(mesh, node);
 }
@@ -447,29 +463,51 @@ static void FillMeshes(FbxManager* sdkManager, OBModel& model, FbxScene* scene, 
 	for (int i = 0; i < meshes.size(); i++)
 	{
 		int id = (int) meshes[i]->GetUserDataPtr();
+		printf("[FillMeshes] %s\n", meshes[i]->GetNode()->GetName());
 		FillMesh(sdkManager, model.meshList->list[id], meshes[i]->GetNode());
 	}
 }
 
 static void NumberMeshes(FbxScene* scene, std::vector<FbxMesh*>& meshes)
 {
-	int id = 0;
-	for (int i = 0; i < scene->GetGeometryCount(); i++)
+	uint8_t takenIds[256];
+	memset(takenIds, 0, 256);
+
+	int geoCount = scene->GetGeometryCount();
+	if (geoCount > 256)
+		geoCount = 256;
+	for (int i = 0; i < geoCount; i++)
 	{
 		FbxGeometry* geometry = scene->GetGeometry(i);
 		if (geometry->GetAttributeType() == FbxNodeAttribute::eMesh)
 		{
+			int id = 0;
+			while (takenIds[id])
+				id++;
+
 			int idToUse = id;
+			bool manualId = false;
 			FbxNode* node = geometry->GetNode();
 			std::string name = node->GetName();
 			if (name.substr(0, 4) == "Mesh")
 			{
-				idToUse = atoi(name.substr(4).c_str());
+				int a = atoi(name.substr(4).c_str());
+				if (takenIds[a])
+				{
+					printf("Mesh id %d was already taken\n", a);
+					manualId = false;
+				}
+				else
+				{
+					takenIds[a] = 1;
+					idToUse = a;
+					manualId = true;
+				}
 			}
-
+			if (!manualId)
+				takenIds[id] = 1;
 			geometry->SetUserDataPtr((void*) idToUse);
-			meshes.push_back((FbxMesh*)geometry);
-			id++;
+			meshes.push_back((FbxMesh*) geometry);
 		}
 		else
 		{

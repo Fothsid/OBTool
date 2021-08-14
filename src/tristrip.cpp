@@ -62,6 +62,9 @@ static void TriangleListToTriangleStrips(StripList& result, STriList& triList, i
 	int stripIndex = 0;
 	for (int g = 0; g < groupList.size(); g++)
 	{
+		if (groupList[g].size() < 1)
+			continue;
+
 		STRIPERCREATE sc;
 		sc.DFaces			= &groupList[g][0].idx[0];
 		sc.NbFaces			= groupList[g].size();
@@ -71,10 +74,18 @@ static void TriangleListToTriangleStrips(StripList& result, STriList& triList, i
 		sc.SGIAlgorithm		= true;
 
 		Striper striper;
-		striper.Init(sc);
+		if (!striper.Init(sc))
+		{
+			printf("[tristrip] Could not initialize the striper.\n");
+			continue;
+		}
 
 		STRIPERRESULT sr;
-		striper.Compute(sr);
+		if (!striper.Compute(sr))
+		{
+			printf("[tristrip] Could not create triangle strips.\n");
+			continue;
+		}
 
 		result.resize(result.size() + sr.NbStrips);
 
@@ -107,7 +118,7 @@ void ConvertMeshToTriangleStrips(FbxManager* sdkManager, StripGroupList& result,
 	FbxSkin* skin = (FbxSkin*) mesh->GetDeformer(0);
 	if (skin)
 	{
-		if (skin->GetClusterCount() > 0)
+		if (skin->GetClusterCount() > 1)
 			groupList.resize(2);
 		else
 			groupList.resize(1);
@@ -117,14 +128,16 @@ void ConvertMeshToTriangleStrips(FbxManager* sdkManager, StripGroupList& result,
 		groupList.resize(1);
 	}
 
-	groupList.resize(1);
 	if (groupList.size() == 2)
 		GroupTrianglesByWeight(groupList, triangles, vertices);
 	else
 		FillTriangles(groupList, triangles, vertices);
 
-	if (groupList.size() == 2 && groupList[1].size() == 0)
-		groupList.resize(1);
+	if (groupList.size() == 2)
+	{
+		if (groupList[1].size() == 0)
+			groupList.resize(1);
+	}
 
 	result.resize(groupList.size());
 
