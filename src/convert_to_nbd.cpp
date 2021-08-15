@@ -410,9 +410,11 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		mesh.normalList->list.resize(vertices.size());
 		for (int i = 0; i < vertices.size(); i++)
 		{
-			mesh.normalList->list[i].x = vertices[i].nx;
-			mesh.normalList->list[i].y = vertices[i].ny;
-			mesh.normalList->list[i].z = vertices[i].nz;
+			FbxVector4 normal(vertices[i].nx, vertices[i].ny, vertices[i].nz);
+			normal = matrix.Inverse() * normal;
+			mesh.normalList->list[i].x = normal[0];
+			mesh.normalList->list[i].y = normal[1];
+			mesh.normalList->list[i].z = normal[2];
 		}
 	}
 
