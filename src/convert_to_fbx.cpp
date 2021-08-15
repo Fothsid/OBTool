@@ -444,18 +444,16 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 		OBNode* node = &hie->nodeList[i];
 		FbxNode* fNode = joints[i];
 
-		fNode->SetUserDataPtr(node);
+		FbxProperty groupProperty = FbxProperty::Create(fNode, FbxIntDT, "GroupId", "");
+		groupProperty.ModifyFlag(FbxPropertyFlags::eUserDefined, true);
+		groupProperty.Set(node->groupId);
 
 		switch (node->getType())
 		{
-			default: break;
 			case OBType::NodeJoint:
 			{
 				FbxSkeleton* skeletonAttr = FbxSkeleton::Create(scene, "");
-				if (!node->parent)
-					skeletonAttr->SetSkeletonType(FbxSkeleton::eRoot);
-				else
-					skeletonAttr->SetSkeletonType(FbxSkeleton::eLimbNode);
+				skeletonAttr->SetSkeletonType(FbxSkeleton::eLimbNode);
 				fNode->SetNodeAttribute(skeletonAttr);
 			} break;
 			case OBType::NodeMesh:
@@ -467,25 +465,26 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 					CreateMesh(scene, meshName.c_str(), m, fNode, materials, joints);
 					meshes[node->meshId] = fNode;
 				}
-				else
-				{
-					FbxSkeleton* skeletonAttr = FbxSkeleton::Create(scene, "");
-					if (!node->parent)
-						skeletonAttr->SetSkeletonType(FbxSkeleton::eRoot);
-					else
-						skeletonAttr->SetSkeletonType(FbxSkeleton::eLimbNode);
-					fNode->SetNodeAttribute(skeletonAttr);
-				}
 			} break;
+			default: break;
+		}
+
+		/*
+			Force node to be part of a skeleton if the parent has a skeleton attribute
+			and the current node does not.
+
+			Basically a hacky way to make Maya correctly import nodes like Node22.
+		*/
+		if (node->parent && node->parent->getType() == OBType::NodeJoint && node->getType() == OBType::Node)
+		{
+			FbxSkeleton* skeletonAttr = FbxSkeleton::Create(scene, "");
+			skeletonAttr->SetSkeletonType(FbxSkeleton::eLimbNode);
+			fNode->SetNodeAttribute(skeletonAttr);
 		}
 
 		fNode->LclTranslation.Set(FbxVector4(node->transform.translation[0], 
 											 node->transform.translation[1], 
 											 node->transform.translation[2]));
-	
-		FbxProperty groupProperty = FbxProperty::Create(fNode, FbxIntDT, "GroupId", "Node Group Id");
-		groupProperty.ModifyFlag(FbxPropertyFlags::eUserDefined, true);
-		groupProperty.Set(node->groupId);
 
 		joints[i] = fNode;
 	}
