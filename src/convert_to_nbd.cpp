@@ -637,6 +637,9 @@ static void FillHierarchy(OBHierarchy& hie, FbxScene* scene, std::vector<FbxNode
 		obNode->transform.translation[2] = t[2];
 		obNode->transform.translation[3] = 1.0f;
 		
+		if (obNode->type == OBType::NodeJoint)
+			r = -r;
+
 		obNode->transform.rotation[0] = (r[0] / 180.0f) * M_PI;
 		obNode->transform.rotation[1] = (r[1] / 180.0f) * M_PI;
 		obNode->transform.rotation[2] = (r[2] / 180.0f) * M_PI;
