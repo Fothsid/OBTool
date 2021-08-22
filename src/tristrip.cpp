@@ -71,7 +71,7 @@ static void TriangleListToTriangleStrips(StripList& result, STriList& triList, i
 		sc.AskForWords		= false;
 		sc.ConnectAllStrips	= false;
 		sc.OneSided			= true;
-		sc.SGIAlgorithm		= false; // This option sometimes results in wrong triangle index normal
+		sc.SGIAlgorithm		= false; // This option sometimes results in wrong triangle index order
 
 		Striper striper;
 		if (!striper.Init(sc))
