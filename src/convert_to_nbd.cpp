@@ -622,7 +622,6 @@ static void FillHierarchy(OBHierarchy& hie, FbxScene* scene, std::vector<FbxNode
 		FbxAMatrix matrix = node->EvaluateLocalTransform();
 		FbxAMatrix parentMatrix = node->GetParent()->EvaluateGlobalTransform();
 		parentMatrix.SetT({0, 0, 0, 1});
-		parentMatrix.SetS({1, 1, 1, 1});
 		
 		FbxVector4 t;
 		if (obNode->type == OBType::NodeJoint)
@@ -636,9 +635,6 @@ static void FillHierarchy(OBHierarchy& hie, FbxScene* scene, std::vector<FbxNode
 		obNode->transform.translation[1] = t[1];
 		obNode->transform.translation[2] = t[2];
 		obNode->transform.translation[3] = 1.0f;
-		
-		if (obNode->type == OBType::NodeJoint)
-			r = -r;
 
 		obNode->transform.rotation[0] = (r[0] / 180.0f) * M_PI;
 		obNode->transform.rotation[1] = (r[1] / 180.0f) * M_PI;

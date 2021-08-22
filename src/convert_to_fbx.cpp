@@ -444,6 +444,8 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 		OBNode* node = &hie->nodeList[i];
 		FbxNode* fNode = joints[i];
 
+		fNode->SetUserDataPtr((void*) node);
+
 		FbxProperty groupProperty = FbxProperty::Create(fNode, FbxIntDT, "GroupId", "");
 		groupProperty.ModifyFlag(FbxPropertyFlags::eUserDefined, true);
 		groupProperty.Set(node->groupId);
@@ -493,7 +495,7 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 	for (int i = 0; i < hie->nodeList.size(); i++)
 	{
 		FbxNode* fNode = joints[i];
-	
+
 		if (fNode->GetSkeleton() && fNode->GetParent()->GetUserDataPtr())
 		{
 			OBNode* node = (OBNode*) fNode->GetParent()->GetUserDataPtr();
@@ -502,11 +504,11 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 										   node->transform.translation[1], 
 										   node->transform.translation[2]),
 								FbxVector4((node->transform.rotation[0] / M_PI) * 180.0f,
-										  (node->transform.rotation[1] / M_PI) * 180.0f,
-										  (node->transform.rotation[2] / M_PI) * 180.0f),
+										   (node->transform.rotation[1] / M_PI) * 180.0f,
+										   (node->transform.rotation[2] / M_PI) * 180.0f),
 								FbxVector4(node->transform.scale[0], 
-										 node->transform.scale[1], 
-										 node->transform.scale[2]));
+										   node->transform.scale[1], 
+										   node->transform.scale[2]));
 			while (node->parent)
 			{
 				node = node->parent;
