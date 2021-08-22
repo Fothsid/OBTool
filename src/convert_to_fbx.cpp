@@ -170,7 +170,7 @@ void CreateRenderAttribs(FbxScene* scene, FbxNode* meshNode, OBRenderAttribs* at
 {
 	int32_t* attr;
 	if (attribs)
-		attr = (int32_t*) &attribs->attribs.material;
+		attr = (int32_t*) &attribs->attribs.version;
 
 	int id = 0;
 	FbxProperty p[18];
@@ -527,16 +527,16 @@ void CreateSkeleton(FbxScene* scene, OBHierarchy* hie, OBMeshList* meshList,
 	}
 }
 
-static void RecursivelyAddPoseBinds(FbxScene* scene, FbxPose* pose, FbxNode* node, OBNbd* nbd, std::vector<FbxNode*>& joints)
+static void RecursivelyAddPoseBinds(FbxScene* scene, FbxPose* pose, FbxNode* node, std::vector<FbxNode*>& joints)
 {
 	FbxMatrix matrix = node->EvaluateGlobalTransform();
 	pose->Add(node, matrix);
 	FbxNode* parent = node->GetParent();
 	if (parent && parent != scene->GetRootNode())
-		RecursivelyAddPoseBinds(scene, pose, parent, nbd, joints);
+		RecursivelyAddPoseBinds(scene, pose, parent, joints);
 }
 
-static void CreateBindPoses(FbxScene* scene, OBNbd* nbd, std::vector<FbxNode*>& meshes, std::vector<FbxNode*>& joints)
+static void CreateBindPoses(FbxScene* scene, OBHierarchy* hie, std::vector<FbxNode*>& meshes, std::vector<FbxNode*>& joints)
 {
 	for (int i = 0; i < meshes.size(); i++)
 	{
@@ -563,15 +563,30 @@ static void CreateBindPoses(FbxScene* scene, OBNbd* nbd, std::vector<FbxNode*>& 
 						break;
 					}
 				}
-				RecursivelyAddPoseBinds(scene, pose, node, nbd, joints);
+				RecursivelyAddPoseBinds(scene, pose, node, joints);
 			}
 			scene->AddPose(pose);
 		}
 	}
 
+}
+
+static void FillScene(std::string output, FbxScene* scene, OBNbdScene* nbdScene, bool isRoom)
+{
+	std::vector<FbxNode*> joints(nbdScene->hierarchy->nodeList.size());
+	std::vector<FbxFileTexture*> textures(nbdScene->model->textureList->list.size());
+	std::vector<FbxSurfaceLambert*> materials(nbdScene->model->materialList->list.size());
+	std::vector<FbxNode*> meshes(nbdScene->model->meshList->list.size());
+	CreateTextures(output, scene, nbdScene->model->textureList, textures);
+	CreateMaterials(output, scene, nbdScene->model->materialList, materials, textures);
+	CreateSkeleton(scene, nbdScene->hierarchy, nbdScene->model->meshList, materials, joints, meshes);
+	CreateMeshes(scene, nbdScene->model->meshList, materials, joints, meshes);
+	if (!isRoom)
+		CreateBindPoses(scene, nbdScene->hierarchy, meshes, joints);
+
 	for (int i = 0; i < joints.size(); i++)
 	{
-		OBNode* node = &nbd->ahi.nodeList[i];
+		OBNode* node = &nbdScene->hierarchy->nodeList[i];
 		joints[i]->LclRotation.Set(FbxVector4((node->transform.rotation[0] / M_PI) * 180.0f,
 											  (node->transform.rotation[1] / M_PI) * 180.0f,
 											  (node->transform.rotation[2] / M_PI) * 180.0f));
@@ -581,19 +596,6 @@ static void CreateBindPoses(FbxScene* scene, OBNbd* nbd, std::vector<FbxNode*>& 
 	}
 }
 
-static void FillScene(std::string output, FbxScene* scene, OBNbd* nbd)
-{
-	std::vector<FbxNode*> joints(nbd->ahi.nodeList.size());
-	std::vector<FbxFileTexture*> textures(nbd->amo.textureList->list.size());
-	std::vector<FbxSurfaceLambert*> materials(nbd->amo.materialList->list.size());
-	std::vector<FbxNode*> meshes(nbd->amo.meshList->list.size());
-	CreateTextures(output, scene, nbd->amo.textureList, textures);
-	CreateMaterials(output, scene, nbd->amo.materialList, materials, textures);
-	CreateSkeleton(scene, &nbd->ahi, nbd->amo.meshList, materials, joints, meshes);
-	CreateMeshes(scene, nbd->amo.meshList, materials, joints, meshes);
-	CreateBindPoses(scene, nbd, meshes, joints);
-}
-
 static int OutputTextures(std::string output, std::vector<OBNbdTexture>& textures)
 {
 	int r = 1;
@@ -601,7 +603,7 @@ static int OutputTextures(std::string output, std::vector<OBNbdTexture>& texture
 	{
 		std::string fileName = output + ".texture" + std::to_string(i) + ".png";
 		printf("%s\n", fileName.c_str());
-		r &= OutbreakTm2ToPng(textures[i].tim2Data, fileName.c_str());
+		r &= OutbreakTm2ToPng(textures[i].data.tim2Data, fileName.c_str());
 	}
 	return r;
 }
@@ -642,12 +644,6 @@ int CmdConvertToFBX(int count, char** argv)
 	sdkManager->SetIOSettings(ios);
 	FbxExporter* exporter = FbxExporter::Create(sdkManager, "");
 	bool exportStatus = exporter->Initialize((output + ".fbx").c_str(), -1, sdkManager->GetIOSettings());
-
-	FbxScene* scene = FbxScene::Create(sdkManager, "nbdScene");
-	FillScene(output, scene, &nbd);
-	OutputTextures(output, nbd.textures);
-
-	exporter->Export(scene);
 	if (!exportStatus)
 	{
 		fprintf(stderr, "Call to FbxExporter::Initialize() failed.\n");
@@ -655,8 +651,58 @@ int CmdConvertToFBX(int count, char** argv)
 		return 0;
 	}
 
+	FbxScene* scene = FbxScene::Create(sdkManager, "nbdMainScene");
+	FillScene(output, scene, &nbd.model, nbd.getType() == OBType::RoomNBD);
+	exporter->Export(scene);
+	if (!exportStatus)
+	{
+		fprintf(stderr, "Call to FbxExporter::Export() failed.\n");
+		fprintf(stderr, "Error returned: %s\n\n", exporter->GetStatus().GetErrorString());
+		return 0;
+	}
 	exporter->Destroy();
+
+	if (nbd.addon.isPresent())
+	{
+		std::string name = "";
+		if (nbd.getType() == OBType::RoomNBD)
+			name = output + ".effect.fbx";
+		else
+			name = output + ".addon.fbx";
+
+		exporter = FbxExporter::Create(sdkManager, "");
+		exportStatus = exporter->Initialize(name.c_str(), -1, sdkManager->GetIOSettings());
+		if (!exportStatus)
+		{
+			fprintf(stderr, "Call to FbxExporter::Initialize() failed.\n");
+			fprintf(stderr, "Error returned: %s\n\n", exporter->GetStatus().GetErrorString());
+			return 0;
+		}
+
+		FbxScene* addonScene = FbxScene::Create(sdkManager, "nbdAddonScene");
+		FillScene(output, addonScene, &nbd.addon, nbd.getType() == OBType::RoomNBD);
+		exporter->Export(addonScene);
+		if (!exportStatus)
+		{
+			fprintf(stderr, "Call to FbxExporter::Export() failed.\n");
+			fprintf(stderr, "Error returned: %s\n\n", exporter->GetStatus().GetErrorString());
+			return 0;
+		}
+		exporter->Destroy();
+	}
+
 	sdkManager->Destroy();
+
+	if (nbd.shadow.sdwData)
+	{
+		std::string name = output + ".sdw";
+		FILE* fp = fopen(name.c_str(), "wb");
+		fwrite(nbd.shadow.sdwData, nbd.shadow.size, 1, fp);
+		fclose(fp);
+	}
+
+	if (nbd.getTextureStorageType() == OBType::TextureData)
+		OutputTextures(output, nbd.textures);
 
 	return 1;
 }

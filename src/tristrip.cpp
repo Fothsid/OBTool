@@ -71,19 +71,19 @@ static void TriangleListToTriangleStrips(StripList& result, STriList& triList, i
 		sc.AskForWords		= false;
 		sc.ConnectAllStrips	= false;
 		sc.OneSided			= true;
-		sc.SGIAlgorithm		= true;
+		sc.SGIAlgorithm		= false; // This option sometimes results in wrong triangle index normal
 
 		Striper striper;
 		if (!striper.Init(sc))
 		{
-			printf("[tristrip] Could not initialize the striper.\n");
+			printf("[tristrip] Could not initialize the striper. (%d; %d)\n", g, groupList[g].size());
 			continue;
 		}
 
 		STRIPERRESULT sr;
 		if (!striper.Compute(sr))
 		{
-			printf("[tristrip] Could not create triangle strips.\n");
+			printf("[tristrip] Could not create triangle strips. (%d; %d)\n", g, groupList[g].size());
 			continue;
 		}
 

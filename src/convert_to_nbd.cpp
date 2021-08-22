@@ -1,6 +1,7 @@
 #include "commands.h"
 #include "tristrip.h"
 #include "tim2utils.h"
+#include <unordered_map>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -13,15 +14,16 @@ struct TextureSize
 
 #define M_PI 3.14159265358979323846264338327950288
 
-static bool LoadTextureFromFile(const FbxString& filePath, OBNbdTexture* texture, int* w, int* h)
+static bool LoadTextureFromFile(const FbxString& filePath, OBNbdTexture* texture)
 {
 	/* TODO: implement TBP export (Use user properties for textures perhaps?) */
 	uint32_t dataSize;
-	void* data = OutbreakPngToTm2(filePath.Buffer(), 0, w, h, &dataSize);
+	int w, h;
+	void* data = OutbreakPngToTm2(filePath.Buffer(), 0, &w, &h, &dataSize);
 	if (data)
 	{
-		texture->size = (uint32_t) dataSize;
-		texture->tim2Data = data;
+		texture->data.size = (uint32_t) dataSize;
+		texture->data.tim2Data = data;
 		return true;
 	}
 	else
@@ -30,39 +32,58 @@ static bool LoadTextureFromFile(const FbxString& filePath, OBNbdTexture* texture
 	}
 }
 
-static void ConvertTextures(OBNbd& nbd, FbxScene* scene, const char* fbxFilename, std::vector<TextureSize>& texSizes)
+static void ConvertTextures(OBNbd& nbd, const char* fbxFilename, std::vector<std::string>& textureNames)
 {
-	nbd.textures.resize(scene->GetTextureCount());
-	texSizes.resize(scene->GetTextureCount());
+	nbd.textures.resize(textureNames.size());
+	for (int i = 0; i < textureNames.size(); i++)
+	{
+		printf("[ConvertTextures] \"%s\"\n", textureNames[i].c_str());
+		const FbxString fileName(textureNames[i].c_str());
+		bool status = LoadTextureFromFile(fileName, &nbd.textures[i]);
+		const FbxString absFbxFileName = FbxPathUtils::Resolve(fbxFilename);
+		const FbxString absFolderName = FbxPathUtils::GetFolderName(absFbxFileName);
+		if (!status)
+		{
+			const FbxString textureFileName = FbxPathUtils::GetFileName(fileName);
+			const FbxString resolvedFileName = FbxPathUtils::Bind(absFolderName, textureFileName);
+			status = LoadTextureFromFile(resolvedFileName, &nbd.textures[i]);
+		}
+		if (!status)
+		{
+			fprintf(stderr, "Failed to load texture file: %s\n", fileName.Buffer());
+			continue;
+		}
+	}
+}
+
+static void MapTextureIds(FbxScene* scene, std::vector<std::string>& textureNames)
+{
 	for (int i = 0; i < scene->GetTextureCount(); i++)
 	{
 		FbxTexture* texture = scene->GetTexture(i);
 		FbxFileTexture* fileTexture = FbxCast<FbxFileTexture>(texture);
-		fileTexture->SetUserDataPtr((void*)i); // really dumb stuff here lmao
-		
+		FbxString fileName = fileTexture->GetFileName();
+
 		if (fileTexture)
 		{
-			TextureSize* ts = &texSizes[i];
-			const FbxString fileName = fileTexture->GetFileName();
-			bool status = LoadTextureFromFile(fileName, &nbd.textures[i], &ts->width, &ts->height);
-			const FbxString absFbxFileName = FbxPathUtils::Resolve(fbxFilename);
-			const FbxString absFolderName = FbxPathUtils::GetFolderName(absFbxFileName);
-			if (!status)
+			bool found = false;
+			int resultId = 0;
+			for (int j = 0; j < textureNames.size(); j++)
 			{
-				const FbxString resolvedFileName = FbxPathUtils::Bind(absFolderName, fileTexture->GetRelativeFileName());
-				status = LoadTextureFromFile(resolvedFileName, &nbd.textures[i], &ts->width, &ts->height);
+				if (strcmp(fileName.Buffer(), textureNames[j].c_str()) == 0)
+				{
+					found = true;
+					resultId = j;
+					break;
+				}
 			}
-			if (!status)
+
+			if (!found)
 			{
-				const FbxString textureFileName = FbxPathUtils::GetFileName(fileName);
-				const FbxString resolvedFileName = FbxPathUtils::Bind(absFolderName, textureFileName);
-				status = LoadTextureFromFile(resolvedFileName, &nbd.textures[i], &ts->width, &ts->height);
+				resultId = textureNames.size();
+				textureNames.push_back(std::string(fileName.Buffer()));
 			}
-			if (!status)
-			{
-				fprintf(stderr, "Failed to load texture file: %s\n", fileName.Buffer());
-				continue;
-			}
+			fileTexture->SetUserDataPtr((void*)resultId); // really dumb stuff here lmao
 		}
 	}
 }
@@ -75,15 +96,15 @@ static void AddDate(OBModel& model)
 	model.date->day = 23;
 }
 
-static void FillTextures(OBModel& model, FbxScene* scene, std::vector<TextureSize>& textureSizes)
+static void FillTextures(OBModel& model, FbxScene* scene)
 {
 	model.textureList = new OBTextureList();
 	model.textureList->list.resize(scene->GetTextureCount());
 	for (int i = 0; i < scene->GetTextureCount(); i++)
 	{
 		model.textureList->list[i].id = i;
-		model.textureList->list[i].width = textureSizes[i].width;
-		model.textureList->list[i].height = textureSizes[i].height;
+		model.textureList->list[i].width = 256; // Doesn't matter that much
+		model.textureList->list[i].height = 256;
 		model.textureList->list[i].tiling = 0;
 	}
 }
@@ -183,7 +204,7 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		FbxGeometryConverter gConv(sdkManager);
 		fbxMesh = (FbxMesh*) gConv.Triangulate(fbxMesh, true);
 	}
-	FbxAMatrix matrix = node->EvaluateGlobalTransform();
+	FbxAMatrix matrix = node->EvaluateGlobalTransform().Inverse();
 
 	bool hasNormals = false, 
 		 hasUVs     = false, 
@@ -398,12 +419,11 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 	for (int i = 0; i < vertices.size(); i++)
 	{
 		FbxVector4 pos(vertices[i].x, vertices[i].y, vertices[i].z);
-		pos = matrix.Inverse() * pos;
+		pos = matrix * pos;
 		mesh.vertexList->list[i].x = pos[0];
 		mesh.vertexList->list[i].y = pos[1];
 		mesh.vertexList->list[i].z = pos[2];
 	}
-
 	
 	if (hasNormals)
 	{
@@ -411,7 +431,7 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		for (int i = 0; i < vertices.size(); i++)
 		{
 			FbxVector4 normal(vertices[i].nx, vertices[i].ny, vertices[i].nz);
-			normal = matrix.Inverse() * normal;
+			normal = matrix * normal;
 			mesh.normalList->list[i].x = normal[0];
 			mesh.normalList->list[i].y = normal[1];
 			mesh.normalList->list[i].z = normal[2];
@@ -602,8 +622,13 @@ static void FillHierarchy(OBHierarchy& hie, FbxScene* scene, std::vector<FbxNode
 		FbxAMatrix matrix = node->EvaluateLocalTransform();
 		FbxAMatrix parentMatrix = node->GetParent()->EvaluateGlobalTransform();
 		parentMatrix.SetT({0, 0, 0, 1});
+		parentMatrix.SetS({1, 1, 1, 1});
 		
-		FbxVector4 t = parentMatrix.Inverse() * matrix.GetT();
+		FbxVector4 t;
+		if (obNode->type == OBType::NodeJoint)
+			t = parentMatrix.Inverse() * matrix.GetT();
+		else
+			t = matrix.GetT();
 		FbxVector4 r = matrix.GetR();
 		FbxVector4 s = matrix.GetS();
 		
@@ -624,20 +649,45 @@ static void FillHierarchy(OBHierarchy& hie, FbxScene* scene, std::vector<FbxNode
 	}
 }
 
-
-static void FillNbd(FbxManager* sdkManager, OBNbd& nbd, FbxScene* scene, const char* fbxFilename)
+static void FillNbdScene(FbxManager* sdkManager, OBNbdScene& nbdScene, FbxScene* scene, std::vector<std::string>& textureNames)
 {
-	std::vector<TextureSize> textureSizes;
 	std::vector<FbxMesh*> meshes;
 	std::vector<FbxNode*> nodes;
-	ConvertTextures(nbd, scene, fbxFilename, textureSizes);
+	MapTextureIds(scene, textureNames);
 
-	AddDate(nbd.amo);
-	FillTextures(nbd.amo, scene, textureSizes);
-	FillMaterials(nbd.amo, scene);
+	nbdScene.model = new OBModel();
+	nbdScene.hierarchy = new OBHierarchy();
+	AddDate(*nbdScene.model);
+	FillTextures(*nbdScene.model, scene);
+	FillMaterials(*nbdScene.model, scene);
 	NumberMeshes(scene, meshes);
-	FillHierarchy(nbd.ahi, scene, nodes);
-	FillMeshes(sdkManager, nbd.amo, scene, meshes);
+	FillHierarchy(*nbdScene.hierarchy, scene, nodes);
+	FillMeshes(sdkManager, *nbdScene.model, scene, meshes);
+}
+
+static FbxScene* LoadFbxScene(FbxManager* sdkManager, const char* filepath)
+{
+	FbxImporter* importer = FbxImporter::Create(sdkManager, "");
+	bool importStatus = importer->Initialize(filepath, -1, sdkManager->GetIOSettings());
+	if (!importStatus)
+	{
+		fprintf(stderr, "Call to FbxImporter::Initialize() failed.\n");
+		fprintf(stderr, "Error returned: %s\n\n", importer->GetStatus().GetErrorString());
+		return 0;
+	}
+
+	FbxScene* scene = FbxScene::Create(sdkManager, "nbdScene");
+	importer->Import(scene);
+
+	if (!importStatus)
+	{
+		fprintf(stderr, "Call to FbxImporter::Import() failed.\n");
+		fprintf(stderr, "Error returned: %s\n\n", importer->GetStatus().GetErrorString());
+		return 0;
+	}
+
+	importer->Destroy();
+	return scene;
 }
 
 int CmdConvertToNBD(int count, char** argv)
@@ -655,35 +705,87 @@ int CmdConvertToNBD(int count, char** argv)
 	FbxIOSettings* ios = FbxIOSettings::Create(sdkManager, IOSROOT);
 	sdkManager->SetIOSettings(ios);
 
-	FbxImporter* importer = FbxImporter::Create(sdkManager, "");
-	bool importStatus = importer->Initialize(f_fbx, -1, sdkManager->GetIOSettings());
-	if (!importStatus) {
-		fprintf(stderr, "Call to FbxImporter::Initialize() failed.\n");
-		fprintf(stderr, "Error returned: %s\n\n", importer->GetStatus().GetErrorString());
-		return 0;
-	}
-	FbxScene* scene = FbxScene::Create(sdkManager, "nbdScene");
-	importer->Import(scene);
+	std::filesystem::path pathInput(f_fbx);
+	std::string input = pathInput.parent_path().string();
+	if (input.size() != 0)
+		input = input + "/";
+	input = input + pathInput.stem().string();
 
-	OBNbd nbd;
-	FillNbd(sdkManager, nbd, scene, f_fbx);
+	std::vector<std::string> textureNames;
+	FbxScene* scene = LoadFbxScene(sdkManager, f_fbx);
 
-	std::filesystem::path path(f_nbd);
-	std::string output = path.parent_path().string();
-	if (output.size() != 0)
-		output = output + "/";
-	output = output + path.stem().string();
-	std::ofstream nbdStream(output + ".nbd", std::ios_base::binary);
-	if (nbdStream.fail())
+	std::string effectName = input + ".effect.fbx";
+	std::string addonName = input + ".addon.fbx";
+	std::string shadowName = input + ".sdw";
+
+	bool isRoom = false;
+	bool hasAddon = false;
+	bool hasShadow = false;
+	if (std::filesystem::exists(effectName))
+		isRoom = true;
+	if (std::filesystem::exists(addonName))
+		hasAddon = true;
+	if (std::filesystem::exists(shadowName))
+		hasShadow = true;
+
+	if (!isRoom)
 	{
-		fprintf(stderr, "[ConvertToNBD] Error opening \"%s\" (%s)\n", (output + ".nbd").c_str(), strerror(errno));
-		return 0;
+		OBNbd nbd;
+		nbd.type = OBType::NBD;
+		nbd.textureType = OBType::TextureData;
+		
+		printf("Loading in the main model...\n\n");
+		FillNbdScene(sdkManager, nbd.model, scene, textureNames);
+
+		if (hasAddon)
+		{
+			printf("Loading in the addon model...\n\n");
+			FbxScene* addonScene = LoadFbxScene(sdkManager, addonName.c_str());
+			FillNbdScene(sdkManager, nbd.addon, addonScene, textureNames);
+		}
+
+		printf("Converting the textures...\n\n");
+		ConvertTextures(nbd, f_fbx, textureNames);
+
+		printf("Loading in the shadow...\n");
+		if (hasShadow)
+		{
+			FILE* fp = fopen(shadowName.c_str(), "rb");
+			if (fp)
+			{
+				fseek(fp, 0, SEEK_END);
+				nbd.shadow.size = ftell(fp);
+				nbd.shadow.sdwData = malloc(nbd.shadow.size);
+				fseek(fp, 0, SEEK_SET);
+				fread(nbd.shadow.sdwData, 1, nbd.shadow.size, fp);
+				fclose(fp);
+			}
+			else
+			{
+				printf("[ConvertToNBD] Could not open the shadow file.\n");
+			}
+		}
+
+		std::filesystem::path path(f_nbd);
+		std::string output = path.parent_path().string();
+		if (output.size() != 0)
+			output = output + "/";
+		output = output + path.stem().string();
+		std::ofstream nbdStream(output + ".nbd", std::ios_base::binary);
+		if (nbdStream.fail())
+		{
+			fprintf(stderr, "[ConvertToNBD] Error opening \"%s\" (%s)\n", (output + ".nbd").c_str(), strerror(errno));
+			return 0;
+		}
+		nbd.write(nbdStream);
+		nbdStream.close();
 	}
-	nbd.write(nbdStream);
-	nbdStream.close();
+	else
+	{
+		fprintf(stderr, "[ConvertToNBD] Room conversion is not supported yet.\n");
+	}
 
-
-	importer->Destroy();
+	printf("Done!\n");
 	sdkManager->Destroy();
 	return 1;
 }

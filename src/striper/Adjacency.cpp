@@ -177,6 +177,7 @@ bool Adjacencies::CreateDatabase()
 				RELEASEARRAY(VRefs1);
 				RELEASEARRAY(VRefs0);
 				RELEASEARRAY(FaceNb);
+				printf("[Striper] The mesh is not manifold.\n");
 				return false;				// Only works with manifold meshes (i.e. an edge is not shared by more than 2 triangles)
 			}
 		}

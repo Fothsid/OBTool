@@ -66,17 +66,21 @@ bool Striper::Init(STRIPERCREATE& create)
 	// Create adjacencies
 	{
 		mAdj = new Adjacencies;
-		if(!mAdj)	return false;
+		if(!mAdj)
+		{
+			printf("[Striper] new Adjacencies(); failed\n");
+			return false;
+		}
 
 		ADJACENCIESCREATE ac;
 		ac.NbFaces	= create.NbFaces;
 		ac.DFaces	= create.DFaces;
 		ac.WFaces	= create.WFaces;
 		bool Status = mAdj->Init(ac);
-		if(!Status)	{ RELEASE(mAdj); return false; }
+		if(!Status)	{ RELEASE(mAdj); printf("[Striper] mAdj->Init(ac); failed\n"); return false; }
 
 		Status = mAdj->CreateDatabase();
-		if(!Status)	{ RELEASE(mAdj); return false; }
+		if(!Status)	{ RELEASE(mAdj); printf("[Striper] mAdj->CreateDatabase(); failed\n"); return false; }
 
 		mAskForWords		= create.AskForWords;
 		mOneSided			= create.OneSided;

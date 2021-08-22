@@ -22,6 +22,7 @@ set(SRC
 	src/tristrip.cpp
 	src/convert_to_fbx.cpp
 	src/convert_to_nbd.cpp
+	src/imageindexing.cpp
 
 	# http://www.codercorner.com/Strips.htm
 	src/striper/Adjacency.cpp

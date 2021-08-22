@@ -12,6 +12,8 @@
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define CLAMP(x, upper, lower) (MIN(upper, MAX(x, lower)))
 
+void ImIdx_IndexImage(uint32_t* image, int width, int height, int* resultIndices, uint32_t* resultPalette);
+
 int OutbreakTm2ToPng(void* input, const char* outputFileName)
 {
 	TIM2Header* head = (TIM2Header*) input;
@@ -114,7 +116,16 @@ void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t
 	
 	uint32_t* clut = TIM2_GetClutData(img);
 	uint8_t* image = (uint8_t*) TIM2_GetImageData(img, 0);
-	int clutColorId = 0;
+
+	int* indices = (int*) malloc(sizeof(int)*width*height);
+	ImIdx_IndexImage(data, width, height, indices, clut);
+
+	for (int i = 0; i < width*height; i++)
+		image[i] = (uint8_t) indices[i];
+
+	free(indices);
+
+	/*int clutColorId = 0;
 	for (int px = 0; px < width*height; px++)
 	{
 		int found = 0;
@@ -145,7 +156,7 @@ void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t
 			clut[clutColorId] = data[px];
 			clutColorId++;
 		}
-	}
+	}*/
 	
 	/* Rearranging CLUT */
 	int temp[8];
