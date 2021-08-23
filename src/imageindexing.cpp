@@ -87,7 +87,7 @@ static void CalcRanges(Bucket* bucket)
 	/*
 	   Alpha is less important than RGB, 
 	   plus the bucket becomes more important depending on how many
-	   pixels in the image use the color
+	   colors there are in it
 	*/
 
 	int rgbRangeDistanceSquared = bucket->ranges[0] * bucket->ranges[0] + 
