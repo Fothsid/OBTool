@@ -72,10 +72,6 @@ int OutbreakTm2ToPng(void* input, const char* outputFileName)
 	return 1;
 }
 
-/*
-	TODO (VERY URGENT):
-		- DO ACTUAL COLOR REDUCTION!!!!!!!!!
-*/
 void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t* resultSize)
 {
 	int width, height, _chnlCount;
