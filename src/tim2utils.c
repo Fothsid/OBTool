@@ -17,8 +17,8 @@ void ImIdx_IndexImage(uint32_t* image, int width, int height, int* resultIndices
 int OutbreakTm2ToPng(void* input, const char* outputFileName)
 {
 	TIM2Header* head = (TIM2Header*) input;
-	if (head->tbp)
-		printf("[tim2utils] This TM2 file contains a TBP value! -> %X\n", head->tbp);
+	if (head->globalTextureId)
+		printf("[tim2utils] This TM2 file contains a global texture id value! -> %X\n", head->globalTextureId);
 	if (head->imageCount != 1)
 	{
 		fprintf(stderr, "[tim2utils] Image count isn't 1. Exiting out.\n");
@@ -72,11 +72,7 @@ int OutbreakTm2ToPng(void* input, const char* outputFileName)
 	return 1;
 }
 
-/*
-	TODO (VERY URGENT):
-		- DO ACTUAL COLOR REDUCTION!!!!!!!!!
-*/
-void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t* resultSize)
+void* OutbreakPngToTm2(const char* input, uint16_t globalTextureId, int* x, int* y, uint32_t* resultSize)
 {
 	int width, height, _chnlCount;
 	uint32_t* data = (uint32_t*) stbi_load(input, &width, &height, &_chnlCount, 4);
@@ -99,7 +95,7 @@ void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t
 	header->version = 4;
 	header->largeHeader = 0;
 	header->imageCount = 1;
-	header->tbp = tbp;
+	header->globalTextureId = globalTextureId;
 	
 	TIM2Image* img = TIM2_GetImage(header, 0);
 	img->totalSize = width * height + 1024 + sizeof(TIM2Image);
@@ -113,6 +109,8 @@ void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t
 	img->imageType = TIM2_INDEXED8;
 	img->imageWidth = width;
 	img->imageHeight = height;
+
+	TIM2_CorrectGsTex(img);
 	
 	uint32_t* clut = TIM2_GetClutData(img);
 	uint8_t* image = (uint8_t*) TIM2_GetImageData(img, 0);
@@ -124,39 +122,6 @@ void* OutbreakPngToTm2(const char* input, uint16_t tbp, int* x, int* y, uint32_t
 		image[i] = (uint8_t) indices[i];
 
 	free(indices);
-
-	/*int clutColorId = 0;
-	for (int px = 0; px < width*height; px++)
-	{
-		int found = 0;
-		int foundId = 0;
-		if (clutColorId > 0);
-		for (int i = 0; i < clutColorId; i++)
-		{
-			if (clut[i] == data[px])
-			{
-				found = 1;
-				foundId = i;
-				break;
-			}
-		}
-		
-		if (found)
-			image[px] = foundId;
-		else
-		{
-			if (clutColorId > 255)
-			{
-				printf("ERROR: The image contains more than 256 colors.\n");
-				free(data);
-				free(result);
-				return NULL;
-			}
-			image[px] = clutColorId;
-			clut[clutColorId] = data[px];
-			clutColorId++;
-		}
-	}*/
 	
 	/* Rearranging CLUT */
 	int temp[8];

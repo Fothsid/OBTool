@@ -6,6 +6,8 @@ extern "C" {
 
 int CmdConvertToFBX(int count, char** argv);
 int CmdConvertToNBD(int count, char** argv);
+int CmdExtractScenarioAFS(int count, char** argv);
+int CmdPatchNBDTextures(int count, char** argv);
 
 enum InputType
 {
@@ -15,6 +17,7 @@ enum InputType
 	INPUT_FILEOPEN,
 	INPUT_FILESAVE,
 	INPUT_FOLDER,
+	INPUT_INTEGERARRAY
 };
 
 typedef struct
