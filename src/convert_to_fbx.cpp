@@ -2,7 +2,9 @@
 #include "tim2utils.h"
 #include <filesystem>
 #include <string>
+#include <algorithm>
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include <cmath>
 #include <thanatos.h>
@@ -10,17 +12,18 @@
 
 #define M_PI 3.14159265358979323846264338327950288
 
-struct Tri
-{
-	int idx[3];
-};
-
-void CreateTextures(std::string output, FbxScene* scene, OBTextureList* texList, 
-							std::vector<FbxFileTexture*>& textures)
+void CreateTextures(std::string output, FbxScene* scene, std::vector<OBNbdTexture>& nbdTextures, OBTextureList* texList, 
+							std::vector<FbxFileTexture*>& textures, std::vector<std::string>& textureNameLookup)
 {
 	for (int i = 0; i < texList->list.size(); i++)
 	{
-		std::string fileName = output + ".texture" + std::to_string(texList->list[i].id) + ".png";
+		std::string fileName;
+
+		if (texList->list[i].id < textureNameLookup.size())
+			fileName = textureNameLookup[nbdTextures[texList->list[i].id].afs.id];
+		else
+			fileName = output + ".texture" + std::to_string(texList->list[i].id) + ".png";
+
 		std::string texName = std::string("Texture") + std::to_string(i);
 
 		FbxFileTexture* texture = FbxFileTexture::Create(scene, texName.c_str());
@@ -132,9 +135,13 @@ static int FindElementIndex(std::vector<T>& list, T value)
 	return foundId;
 }
 
-void AddTStripListToMesh(FbxMesh* mesh, std::vector<OBVertex>& originalVertices, 
-						 std::vector<OBVertex>& vertices, std::vector<Tri>& triangles, 
-						 OBTStripList* list, int start, OBTStripMaterialList* mat)
+struct Tri
+{
+	int idx[3];
+	int mat;
+};
+
+void TStripToTriList(std::vector<Tri>& triangles, OBTStripList* list, int32_t* mats)
 {
 	for (int tsi = 0; tsi < list->list.size(); tsi++)
 	{
@@ -154,14 +161,8 @@ void AddTStripListToMesh(FbxMesh* mesh, std::vector<OBVertex>& originalVertices,
 				triangle.idx[1] = ts->indices[t+1];
 				triangle.idx[2] = ts->indices[t+2];
 			}
-
+			triangle.mat = mats[tsi];
 			triangles.push_back(triangle);
-
-			mesh->BeginPolygon(mat->list[start+tsi]);
-			mesh->AddPolygon(FindElementIndex(vertices, originalVertices[triangle.idx[0]]));
-			mesh->AddPolygon(FindElementIndex(vertices, originalVertices[triangle.idx[1]]));
-			mesh->AddPolygon(FindElementIndex(vertices, originalVertices[triangle.idx[2]]));
-			mesh->EndPolygon();
 		}
 	}
 }
@@ -228,12 +229,42 @@ void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
 	 *	Vertices
 	 *
 	 */
+
+	/*
+		NOTE:
+			Sorting out vertices this way often creates non-manifold geometry.
+			!!! Should probably do this differently.
+	*/
+
 	std::vector<OBVertex> vertices;
 	std::vector<std::vector<OBWeight>> weights;
 	if (m->jointRefList && m->weightList)
 		SortOutDuplicateVertices(vertices, weights, m->vertexList, m->weightList);
 	else
 		SortOutDuplicates(vertices, m->vertexList);
+
+	std::vector<Tri> triangles;
+
+	TStripToTriList(triangles, &m->primLists->lists[0], &m->tStripMaterialList->list[0]);
+	if (m->primLists->lists.size() > 1)
+		TStripToTriList(triangles, &m->primLists->lists[1], &m->tStripMaterialList->list[m->primLists->lists[0].list.size()]);
+
+	std::vector<Tri> nmTriangles(triangles.size());
+	for (int i = 0; i < triangles.size(); i++)
+	{
+		Tri triangle = triangles[i];
+		nmTriangles[i].mat = triangle.mat;
+		nmTriangles[i].idx[0] = FindElementIndex(vertices, m->vertexList->list[triangle.idx[0]]);
+		nmTriangles[i].idx[1] = FindElementIndex(vertices, m->vertexList->list[triangle.idx[1]]);
+		nmTriangles[i].idx[2] = FindElementIndex(vertices, m->vertexList->list[triangle.idx[2]]);
+	}
+
+	/*
+	 *
+	 *	Vertices
+	 *
+	 */
+
 	mesh->InitControlPoints(vertices.size());
 	FbxVector4* controlPoints = mesh->GetControlPoints();
 	for (int i = 0; i < vertices.size(); i++)
@@ -244,22 +275,25 @@ void CreateMesh(FbxScene* scene, const char* name, OBMesh* m, FbxNode* meshNode,
 
 	/*
 	 *
-	 *	Triangle strips
+	 *	Triangle data
 	 *
 	 */
 	FbxGeometryElementMaterial* materialElement = mesh->CreateElementMaterial();
 	materialElement->SetMappingMode(FbxGeometryElement::eByPolygon);
 	materialElement->SetReferenceMode(FbxGeometryElement::eIndexToDirect);
 
-	OBTStripMaterialList* tsml = m->tStripMaterialList;
-	std::vector<Tri> triangles;
-
-	AddTStripListToMesh(mesh, m->vertexList->list, vertices, triangles, &m->primLists->lists[0], 0, m->tStripMaterialList);
-	if (m->primLists->lists.size() > 1)
-		AddTStripListToMesh(mesh, m->vertexList->list, vertices, triangles, &m->primLists->lists[1], m->primLists->lists[0].list.size(), m->tStripMaterialList);
-
 	for (int i = 0; i < m->materialRefList->list.size(); i++)
 		meshNode->AddMaterial(materials[m->materialRefList->list[i]]);
+
+	for (int i = 0; i < nmTriangles.size(); i++)
+	{
+		Tri triangle = nmTriangles[i];
+		mesh->BeginPolygon(triangle.mat);
+		mesh->AddPolygon(triangle.idx[0]);
+		mesh->AddPolygon(triangle.idx[1]);
+		mesh->AddPolygon(triangle.idx[2]);
+		mesh->EndPolygon();
+	}
 
 	/*
 	 *
@@ -573,13 +607,13 @@ static void CreateBindPoses(FbxScene* scene, OBHierarchy* hie, std::vector<FbxNo
 
 }
 
-static void FillScene(std::string output, FbxScene* scene, OBNbdScene* nbdScene, bool isRoom)
+static void FillScene(std::string output, FbxScene* scene, OBNbdScene* nbdScene, bool isRoom, std::vector<OBNbdTexture>& nbdTextures, std::vector<std::string>& textureNameLookup)
 {
 	std::vector<FbxNode*> joints(nbdScene->hierarchy->nodeList.size());
 	std::vector<FbxFileTexture*> textures(nbdScene->model->textureList->list.size());
 	std::vector<FbxSurfaceLambert*> materials(nbdScene->model->materialList->list.size());
 	std::vector<FbxNode*> meshes(nbdScene->model->meshList->list.size());
-	CreateTextures(output, scene, nbdScene->model->textureList, textures);
+	CreateTextures(output, scene, nbdTextures, nbdScene->model->textureList, textures, textureNameLookup);
 	CreateMaterials(output, scene, nbdScene->model->materialList, materials, textures);
 	CreateSkeleton(scene, nbdScene->hierarchy, nbdScene->model->meshList, materials, joints, meshes);
 	CreateMeshes(scene, nbdScene->model->meshList, materials, joints, meshes);
@@ -641,6 +675,11 @@ int CmdConvertToFBX(int count, char** argv)
 		output = output + "/";
 	output = output + path.stem().string();
 
+	std::filesystem::path inputPath(f_nbd);
+	std::string inputDir = inputPath.parent_path().string();
+	if (inputDir.size() != 0)
+		inputDir = inputDir + "/";
+
 	FbxManager* sdkManager = FbxManager::Create();
 	FbxIOSettings * ios = FbxIOSettings::Create(sdkManager, IOSROOT);
 	sdkManager->SetIOSettings(ios);
@@ -653,8 +692,31 @@ int CmdConvertToFBX(int count, char** argv)
 		return 0;
 	}
 
+	std::vector<std::string> textureNameLookup;
+	if (nbd.getType() == OBType::RoomNBD)
+	{
+		std::ifstream t(inputDir + "ScenarioTextureList.txt");
+		if (!t.fail())
+		{
+			std::stringstream buffer;
+			buffer << t.rdbuf();
+			for (std::string line; std::getline(buffer, line);)
+			{
+				if (line[0] == '\n' || line[0] == '\r')
+					continue;
+				line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+				line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+				textureNameLookup.push_back(line);
+			}
+		}
+		else
+		{
+			printf("ScenarioTextureList.txt is not found.\n");
+		}
+	}
+
 	FbxScene* scene = FbxScene::Create(sdkManager, "nbdMainScene");
-	FillScene(output, scene, &nbd.model, nbd.getType() == OBType::RoomNBD);
+	FillScene(output, scene, &nbd.model, nbd.getType() == OBType::RoomNBD, nbd.textures, textureNameLookup);
 	exporter->Export(scene);
 	if (!exportStatus)
 	{
@@ -682,7 +744,7 @@ int CmdConvertToFBX(int count, char** argv)
 		}
 
 		FbxScene* addonScene = FbxScene::Create(sdkManager, "nbdAddonScene");
-		FillScene(output, addonScene, &nbd.addon, nbd.getType() == OBType::RoomNBD);
+		FillScene(output, addonScene, &nbd.addon, nbd.getType() == OBType::RoomNBD, nbd.textures, textureNameLookup);
 		exporter->Export(addonScene);
 		if (!exportStatus)
 		{
