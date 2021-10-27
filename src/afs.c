@@ -84,3 +84,69 @@ void* AFSReadFileData(FILE* fp, AFSLdEntry* entry)
 	fseek(fp, begin, SEEK_SET);
 	return result;
 }
+
+#define AlignTo2048(X) (((X) + 0x7FF) & ~0x7FF)
+
+int AFSCreate(FILE* fp, AFSBuildEntry* entries, int count)
+{
+	if (!fp)
+		return 0;
+
+	size_t begin = ftell(fp);
+
+	AFSHeader header;
+	header.fourcc = 0x534641;
+	header.fileCount = count;
+
+	fwrite(&header, sizeof(AFSHeader), 1, fp);
+	size_t pairBegin = ftell(fp);
+	size_t fullHeaderSize = sizeof(AFSHeader) + ((count + 1) * sizeof(AFSPair));
+	size_t zeroesToWrite = AlignTo2048(fullHeaderSize) - fullHeaderSize;
+	for (int i = 0; i < zeroesToWrite; i++)
+	{
+		uint8_t zero = 0;
+		fwrite(&zero, 1, 1, fp);
+	}
+
+	size_t tocSize = sizeof(AFSTOCEntry) * count;
+	AFSTOCEntry* tocBuffer = (AFSTOCEntry*) malloc(tocSize);
+
+	for (int i = 0; i < count; i++)
+	{
+		size_t currentOffset = ftell(fp);
+		AFSBuildEntry* e = &entries[i];
+		AFSTOCEntry* t = &tocBuffer[i];
+		void* data = e->readData(t, e->name, i);
+
+		fwrite(data, t->fileSize, 1, fp);
+		zeroesToWrite = AlignTo2048(t->fileSize) - t->fileSize;
+		for (int i = 0; i < zeroesToWrite; i++)
+		{
+			uint8_t zero = 0;
+			fwrite(&zero, 1, 1, fp);
+		}
+
+		size_t endOffset = ftell(fp);
+		fseek(fp, pairBegin + (i * sizeof(AFSPair)), SEEK_SET);
+		AFSPair pair = {currentOffset - begin, t->fileSize};
+		fwrite(&pair, sizeof(AFSPair), 1, fp);
+		fseek(fp, endOffset, SEEK_SET);
+		e->free(data);
+	}
+
+	size_t lastDataOffset = ftell(fp);
+	fseek(fp, pairBegin + (count * sizeof(AFSPair)), SEEK_SET);
+	AFSPair pair = {lastDataOffset - begin, tocSize};
+	fwrite(&pair, sizeof(AFSPair), 1, fp);
+	fseek(fp, lastDataOffset, SEEK_SET);
+	fwrite(tocBuffer, tocSize, 1, fp);
+	zeroesToWrite = AlignTo2048(tocSize) - tocSize;
+	for (int i = 0; i < zeroesToWrite; i++)
+	{
+		uint8_t zero = 0;
+		fwrite(&zero, 1, 1, fp);
+	}
+
+	free(tocBuffer);
+	return 1;
+}

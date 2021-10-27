@@ -34,6 +34,13 @@ typedef struct
 	uint32_t offset;
 } AFSLdEntry;
 
+typedef struct
+{
+	char* name;
+	void* (*readData)(AFSTOCEntry* out, char* name, int id);
+	void  (*free)(void*);
+} AFSBuildEntry;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,6 +48,7 @@ extern "C" {
 AFSLdEntry* AFSReadTOC(FILE* fp, int* count);
 AFSLdEntry* AFSFindFile(AFSLdEntry* entries, int count, const char* name);
 void* AFSReadFileData(FILE* fp, AFSLdEntry* entry);
+int AFSCreate(FILE* fp, AFSBuildEntry* entries, int count);
 
 #ifdef __cplusplus
 }
