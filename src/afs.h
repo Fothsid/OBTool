@@ -37,7 +37,7 @@ typedef struct
 typedef struct
 {
 	const char* name;
-	void* (*readData)(AFSTOCEntry* out, char* name, int id);
+	void* (*readData)(AFSTOCEntry* out, const char* name, int id);
 	void  (*free)(void*);
 } AFSBuildEntry;
 

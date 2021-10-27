@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <cstdio>
 #include <filesystem>
+#include <sstream>
 #include <fstream>
 #include <algorithm>
 
@@ -31,26 +32,67 @@ static bool LoadTextureFromFile(const FbxString& filePath, OBNbdTexture* texture
 	}
 }
 
-static void ConvertTextures(OBNbd& nbd, const char* fbxFilename, std::vector<std::string>& textureNames)
+static void ConvertTextures(OBNbd& nbd, const char* fbxFilename, std::string inputDir, std::vector<std::string>& textureNames)
 {
 	nbd.textures.resize(textureNames.size());
-	for (int i = 0; i < textureNames.size(); i++)
+	if (nbd.textureType == OBType::TextureData)
 	{
-		printf(" - \"%s\"\n", textureNames[i].c_str());
-		const FbxString fileName(textureNames[i].c_str());
-		bool status = LoadTextureFromFile(fileName, &nbd.textures[i]);
-		const FbxString absFbxFileName = FbxPathUtils::Resolve(fbxFilename);
-		const FbxString absFolderName = FbxPathUtils::GetFolderName(absFbxFileName);
-		if (!status)
+		for (int i = 0; i < textureNames.size(); i++)
 		{
-			const FbxString textureFileName = FbxPathUtils::GetFileName(fileName);
-			const FbxString resolvedFileName = FbxPathUtils::Bind(absFolderName, textureFileName);
-			status = LoadTextureFromFile(resolvedFileName, &nbd.textures[i]);
+			printf(" - \"%s\"\n", textureNames[i].c_str());
+			const FbxString fileName(textureNames[i].c_str());
+			bool status = LoadTextureFromFile(fileName, &nbd.textures[i]);
+			const FbxString absFbxFileName = FbxPathUtils::Resolve(fbxFilename);
+			const FbxString absFolderName = FbxPathUtils::GetFolderName(absFbxFileName);
+			if (!status)
+			{
+				const FbxString textureFileName = FbxPathUtils::GetFileName(fileName);
+				const FbxString resolvedFileName = FbxPathUtils::Bind(absFolderName, textureFileName);
+				status = LoadTextureFromFile(resolvedFileName, &nbd.textures[i]);
+			}
+			if (!status)
+			{
+				fprintf(stderr, "Failed to load texture file: %s\n", fileName.Buffer());
+				continue;
+			}
 		}
-		if (!status)
+	}
+	else
+	{
+		std::vector<std::string> textureNameLookup;
+		std::ifstream t(inputDir + "ScenarioTextureList.txt");
+		if (!t.fail())
 		{
-			fprintf(stderr, "Failed to load texture file: %s\n", fileName.Buffer());
-			continue;
+			std::stringstream buffer;
+			buffer << t.rdbuf();
+			for (std::string line; std::getline(buffer, line);)
+			{
+				if (line[0] == '\n' || line[0] == '\r')
+					continue;
+				line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+				line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+				textureNameLookup.push_back(line);
+			}
+		}
+		else
+		{
+			printf("ScenarioTextureList.txt is not found.\n");
+		}
+		std::unordered_map<std::string, int> map;
+		for (int i = 0; i < textureNameLookup.size(); i++)
+			map[textureNameLookup[i]] = i;
+
+		for (int i = 0; i < textureNames.size(); i++)
+		{
+			std::filesystem::path path(textureNames[i]);
+			std::string output = path.filename().string();
+			if (map.find(output) != map.end())
+				nbd.textures[i].afs.id = map[output];
+			else
+			{
+				printf("Could not find \"%s\" in ScenarioTextureList.txt\n", output.c_str());
+				nbd.textures[i].afs.id = 0;
+			}
 		}
 	}
 }
@@ -195,7 +237,7 @@ static void FillRenderAttributes(OBMesh& mesh, FbxNode* node)
 	}
 }
 
-static int FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
+static int FillMesh(FbxManager* sdkManager, bool isRoom, OBMesh& mesh, FbxNode* node)
 {
 	FbxMesh* fbxMesh = node->GetMesh();
 	if (!fbxMesh->IsTriangleMesh())
@@ -239,6 +281,7 @@ static int FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 
 	if (elementColor)
 	{
+		printf("Has color\n");
 		hasColors = true;
 	}
 	mesh.colorList = new OBColorList();
@@ -298,18 +341,63 @@ static int FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 			float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
 			if (hasColors)
 			{
-				/* I hope I'm doing this correctly... */
-				if (elementColor->GetMappingMode() == FbxGeometryElement::eByControlPoint)
+				FbxColor c(0.0f, 0.0f, 0.0f, 1.0f);
+				switch (elementColor->GetMappingMode())
 				{
-					FbxColor c(0.0f, 0.0f, 0.0f, 1.0f);
-					if (elementColor->GetReferenceMode() == FbxGeometryElement::eDirect)
-						c = elementColor->GetDirectArray().GetAt(vertexId);
-
-					r = c[0];
-					g = c[1];
-					b = c[2];
-					a = c[3];
+					case FbxGeometryElement::eByControlPoint:
+					{
+						switch (elementColor->GetReferenceMode())
+						{
+							case FbxGeometryElement::eDirect:
+							{
+								c = elementColor->GetDirectArray().GetAt(vertexId);
+								break;
+							}
+							case FbxGeometryElement::eIndexToDirect:
+							{
+								int id = elementColor->GetIndexArray().GetAt(vertexId);
+								c = elementColor->GetDirectArray().GetAt(id);
+								break;
+							}
+							default:
+							{
+								break;
+							}
+						}
+						break;
+					}
+					case FbxGeometryElement::eByPolygonVertex:
+					{
+						switch (elementColor->GetReferenceMode())
+						{
+							case FbxGeometryElement::eDirect:
+							{
+								c = elementColor->GetDirectArray().GetAt(vertexId);
+								break;
+							}
+							case FbxGeometryElement::eIndexToDirect:
+							{
+								int id = elementColor->GetIndexArray().GetAt(vertexId);
+								c = elementColor->GetDirectArray().GetAt(id);
+								break;
+							}
+							default:
+							{
+								break;
+							}
+						}
+						break;
+					}
+					default:
+					{
+						break;
+					}
 				}
+
+				r = c[0];
+				g = c[1];
+				b = c[2];
+				a = c[3];
 			}
 
 			Vertex vert(vx, vy, vz, tx, ty, nx, ny, nz, r, g, b, a);
@@ -434,7 +522,8 @@ static int FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 	for (int i = 0; i < vertices.size(); i++)
 	{
 		FbxVector4 pos(vertices[i].x, vertices[i].y, vertices[i].z);
-		pos = matrix * pos;
+		if (!isRoom)
+			pos = matrix * pos;
 		mesh.vertexList->list[i].x = pos[0];
 		mesh.vertexList->list[i].y = pos[1];
 		mesh.vertexList->list[i].z = pos[2];
@@ -446,7 +535,8 @@ static int FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		for (int i = 0; i < vertices.size(); i++)
 		{
 			FbxVector4 normal(vertices[i].nx, vertices[i].ny, vertices[i].nz);
-			normal = matrix * normal;
+			if (!isRoom)
+				normal = matrix * normal;
 			mesh.normalList->list[i].x = normal[0];
 			mesh.normalList->list[i].y = normal[1];
 			mesh.normalList->list[i].z = normal[2];
@@ -500,7 +590,7 @@ static int FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 	return 1;
 }
 
-static int FillMeshes(FbxManager* sdkManager, OBModel& model, FbxScene* scene, std::vector<FbxMesh*>& meshes)
+static int FillMeshes(FbxManager* sdkManager, bool isRoom, OBModel& model, FbxScene* scene, std::vector<FbxMesh*>& meshes)
 {
 	model.meshList = new OBMeshList();
 	model.meshList->list.resize(meshes.size());
@@ -508,7 +598,7 @@ static int FillMeshes(FbxManager* sdkManager, OBModel& model, FbxScene* scene, s
 	{
 		int id = (int) meshes[i]->GetUserDataPtr();
 		printf("========== %s ==========\n", meshes[i]->GetNode()->GetName());
-		if (!FillMesh(sdkManager, model.meshList->list[id], meshes[i]->GetNode()))
+		if (!FillMesh(sdkManager, isRoom, model.meshList->list[id], meshes[i]->GetNode()))
 		{
 			printf("An error has been encountered while converting a mesh.\n"
 				   "Aborting the process\n\n");
@@ -676,7 +766,7 @@ static void FillHierarchy(OBHierarchy& hie, FbxScene* scene, std::vector<FbxNode
 	}
 }
 
-static int FillNbdScene(FbxManager* sdkManager, OBNbdScene& nbdScene, FbxScene* scene, std::vector<std::string>& textureNames)
+static int FillNbdScene(FbxManager* sdkManager, bool isRoom, OBNbdScene& nbdScene, FbxScene* scene, std::vector<std::string>& textureNames)
 {
 	std::vector<FbxMesh*> meshes;
 	std::vector<FbxNode*> nodes;
@@ -689,7 +779,7 @@ static int FillNbdScene(FbxManager* sdkManager, OBNbdScene& nbdScene, FbxScene* 
 	FillMaterials(*nbdScene.model, scene);
 	NumberMeshes(scene, meshes);
 	FillHierarchy(*nbdScene.hierarchy, scene, nodes);
-	if (!FillMeshes(sdkManager, *nbdScene.model, scene, meshes))
+	if (!FillMeshes(sdkManager, isRoom, *nbdScene.model, scene, meshes))
 		return 0;
 	return 1;
 }
@@ -739,6 +829,9 @@ int CmdConvertToNBD(int count, char** argv)
 	if (input.size() != 0)
 		input = input + "/";
 	input = input + pathInput.stem().string();
+	std::string inputDir = pathInput.parent_path().string();
+	if (inputDir.size() != 0)
+		inputDir = inputDir + "/";
 
 	std::vector<std::string> textureNames;
 	FbxScene* scene = LoadFbxScene(sdkManager, f_fbx);
@@ -757,70 +850,71 @@ int CmdConvertToNBD(int count, char** argv)
 	if (std::filesystem::exists(shadowName))
 		hasShadow = true;
 
-	if (!isRoom)
+	OBNbd nbd;
+	if (isRoom)
 	{
-		OBNbd nbd;
+		nbd.type = OBType::RoomNBD;
+		nbd.textureType = OBType::TextureAFSRef;
+	}
+	else
+	{
 		nbd.type = OBType::NBD;
 		nbd.textureType = OBType::TextureData;
-		
-		printf("Loading in the main model...\n\n");
-		if (!FillNbdScene(sdkManager, nbd.model, scene, textureNames))
+	}	
+	
+	printf("Loading in the main model...\n\n");
+	if (!FillNbdScene(sdkManager, isRoom, nbd.model, scene, textureNames))
+	{
+		printf("Failed to convert the main model.\n");
+		return 0;
+	}
+
+	if (hasAddon || isRoom)
+	{
+		printf("Loading in the addon/effect model...\n\n");
+		FbxScene* addonScene = LoadFbxScene(sdkManager, isRoom ? effectName.c_str() : addonName.c_str());
+		if (!FillNbdScene(sdkManager, isRoom, nbd.addon, addonScene, textureNames))
 		{
 			printf("Failed to convert the main model.\n");
 			return 0;
 		}
-
-		if (hasAddon)
-		{
-			printf("Loading in the addon model...\n\n");
-			FbxScene* addonScene = LoadFbxScene(sdkManager, addonName.c_str());
-			if (!FillNbdScene(sdkManager, nbd.addon, addonScene, textureNames))
-			{
-				printf("Failed to convert the main model.\n");
-				return 0;
-			}
-		}
-
-		printf("Converting the textures...\n");
-		ConvertTextures(nbd, f_fbx, textureNames);
-
-		printf("Loading in the shadow...\n");
-		if (hasShadow)
-		{
-			FILE* fp = fopen(shadowName.c_str(), "rb");
-			if (fp)
-			{
-				fseek(fp, 0, SEEK_END);
-				nbd.shadow.size = ftell(fp);
-				nbd.shadow.sdwData = malloc(nbd.shadow.size);
-				fseek(fp, 0, SEEK_SET);
-				fread(nbd.shadow.sdwData, 1, nbd.shadow.size, fp);
-				fclose(fp);
-			}
-			else
-			{
-				printf("[ConvertToNBD] Could not open the shadow file.\n");
-			}
-		}
-
-		std::filesystem::path path(f_nbd);
-		std::string output = path.parent_path().string();
-		if (output.size() != 0)
-			output = output + "/";
-		output = output + path.stem().string();
-		std::ofstream nbdStream(output + ".nbd", std::ios_base::binary);
-		if (nbdStream.fail())
-		{
-			fprintf(stderr, "[ConvertToNBD] Error opening \"%s\" (%s)\n", (output + ".nbd").c_str(), strerror(errno));
-			return 0;
-		}
-		nbd.write(nbdStream);
-		nbdStream.close();
 	}
-	else
+
+	printf("Converting the textures...\n");
+	ConvertTextures(nbd, f_fbx, inputDir, textureNames);
+
+	if (hasShadow && !isRoom)
 	{
-		fprintf(stderr, "[ConvertToNBD] Room conversion is not supported yet.\n");
+		printf("Loading in the shadow...\n");
+		FILE* fp = fopen(shadowName.c_str(), "rb");
+		if (fp)
+		{
+			fseek(fp, 0, SEEK_END);
+			nbd.shadow.size = ftell(fp);
+			nbd.shadow.sdwData = malloc(nbd.shadow.size);
+			fseek(fp, 0, SEEK_SET);
+			fread(nbd.shadow.sdwData, 1, nbd.shadow.size, fp);
+			fclose(fp);
+		}
+		else
+		{
+			printf("[ConvertToNBD] Could not open the shadow file.\n");
+		}
 	}
+
+	std::filesystem::path path(f_nbd);
+	std::string output = path.parent_path().string();
+	if (output.size() != 0)
+		output = output + "/";
+	output = output + path.stem().string();
+	std::ofstream nbdStream(output + ".nbd", std::ios_base::binary);
+	if (nbdStream.fail())
+	{
+		fprintf(stderr, "[ConvertToNBD] Error opening \"%s\" (%s)\n", (output + ".nbd").c_str(), strerror(errno));
+		return 0;
+	}
+	nbd.write(nbdStream);
+	nbdStream.close();
 
 	printf("Done!\n");
 	sdkManager->Destroy();

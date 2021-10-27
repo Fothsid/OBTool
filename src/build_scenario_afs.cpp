@@ -11,7 +11,7 @@
 #include <cstddef>
 #include <vector>
 
-void* __AFSBuildScenarioTexture(AFSTOCEntry* out, char* name, int id)
+void* __AFSBuildScenarioTexture(AFSTOCEntry* out, const char* name, int id)
 {
 	*out = {0};
 	printf("%s\n", name);
@@ -46,7 +46,7 @@ void* __AFSBuildScenarioTexture(AFSTOCEntry* out, char* name, int id)
 	return data;
 }
 
-void* __AFSBuildScenarioFile(AFSTOCEntry* out, char* name, int id)
+void* __AFSBuildScenarioFile(AFSTOCEntry* out, const char* name, int id)
 {
 	*out = {0};
 	printf("%s\n", name);
