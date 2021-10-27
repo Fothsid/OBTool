@@ -53,7 +53,7 @@ static void FillTriangles(STriGroupList& result, std::vector<_Tri>& triangles, s
 	}
 }
 
-static void TriangleListToTriangleStrips(StripList& result, STriList& triList, int materialCount)
+static int TriangleListToTriangleStrips(StripList& result, STriList& triList, int materialCount)
 {
 	TriangleGroupList groupList;
 	groupList.resize(materialCount);
@@ -76,15 +76,19 @@ static void TriangleListToTriangleStrips(StripList& result, STriList& triList, i
 		Striper striper;
 		if (!striper.Init(sc))
 		{
+#ifdef _DEBUG 
 			printf("[tristrip] Could not initialize the striper. (%d; %d)\n", g, groupList[g].size());
-			continue;
+#endif
+			return 0;
 		}
 
 		STRIPERRESULT sr;
 		if (!striper.Compute(sr))
 		{
+#ifdef _DEBUG
 			printf("[tristrip] Could not create triangle strips. (%d; %d)\n", g, groupList[g].size());
-			continue;
+#endif
+			return 0;
 		}
 
 		result.resize(result.size() + sr.NbStrips);
@@ -102,9 +106,10 @@ static void TriangleListToTriangleStrips(StripList& result, STriList& triList, i
 		}
 		stripIndex += sr.NbStrips;
 	}
+	return 1;
 }
 
-void ConvertMeshToTriangleStrips(FbxManager* sdkManager, StripGroupList& result, FbxNode* meshNode,
+int ConvertMeshToTriangleStrips(FbxManager* sdkManager, StripGroupList& result, FbxNode* meshNode,
 								 std::vector<_Tri>& triangles, std::vector<Vertex>& vertices)
 {
 
@@ -142,6 +147,12 @@ void ConvertMeshToTriangleStrips(FbxManager* sdkManager, StripGroupList& result,
 	result.resize(groupList.size());
 
 	for (int i = 0; i < groupList.size(); i++)
-		TriangleListToTriangleStrips(result[i], groupList[i], meshNode->GetMaterialCount());
-
+	{
+		int r = TriangleListToTriangleStrips(result[i], groupList[i], meshNode->GetMaterialCount());
+		if (!r)
+		{
+			return 0;
+		}
+	}
+	return 1;
 }

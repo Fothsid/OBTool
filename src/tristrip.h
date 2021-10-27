@@ -86,5 +86,5 @@ typedef std::vector<STriList> STriGroupList;
 typedef std::vector<TStrip> StripList;
 typedef std::vector<StripList> StripGroupList;
 
-void ConvertMeshToTriangleStrips(FbxManager* sdkManager, StripGroupList& result, FbxNode* meshNode,
+int ConvertMeshToTriangleStrips(FbxManager* sdkManager, StripGroupList& result, FbxNode* meshNode,
 								 std::vector<_Tri>& triangles, std::vector<Vertex>& vertices);

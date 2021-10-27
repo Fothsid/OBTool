@@ -16,7 +16,6 @@ struct TextureSize
 
 static bool LoadTextureFromFile(const FbxString& filePath, OBNbdTexture* texture)
 {
-	/* TODO: implement TBP export (Use user properties for textures perhaps?) */
 	uint32_t dataSize;
 	int w, h;
 	void* data = OutbreakPngToTm2(filePath.Buffer(), 0, &w, &h, &dataSize);
@@ -37,7 +36,7 @@ static void ConvertTextures(OBNbd& nbd, const char* fbxFilename, std::vector<std
 	nbd.textures.resize(textureNames.size());
 	for (int i = 0; i < textureNames.size(); i++)
 	{
-		printf("[ConvertTextures] \"%s\"\n", textureNames[i].c_str());
+		printf(" - \"%s\"\n", textureNames[i].c_str());
 		const FbxString fileName(textureNames[i].c_str());
 		bool status = LoadTextureFromFile(fileName, &nbd.textures[i]);
 		const FbxString absFbxFileName = FbxPathUtils::Resolve(fbxFilename);
@@ -145,11 +144,11 @@ static void FillMaterials(OBModel& model, FbxScene* scene)
 		mat->ambient.r = lambert->Ambient.Get()[0];
 		mat->ambient.g = lambert->Ambient.Get()[1];
 		mat->ambient.b = lambert->Ambient.Get()[2];
-		mat->ambient.a = 1.0f;//lambert->AmbientFactor.Get();
+		mat->ambient.a = 1.0f;
 		mat->diffuse.r = lambert->Diffuse.Get()[0];
 		mat->diffuse.g = lambert->Diffuse.Get()[1];
 		mat->diffuse.b = lambert->Diffuse.Get()[2];
-		mat->diffuse.a = 1.0f ;//- lambert->TransparencyFactor.Get(); //lambert->DiffuseFactor.Get();
+		mat->diffuse.a = 1.0f;
 		mat->textures.resize(1);
 		if (lambert->Diffuse.GetSrcObjectCount() > 0 && lambert->Diffuse.GetSrcObject())
 		{
@@ -196,7 +195,7 @@ static void FillRenderAttributes(OBMesh& mesh, FbxNode* node)
 	}
 }
 
-static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
+static int FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 {
 	FbxMesh* fbxMesh = node->GetMesh();
 	if (!fbxMesh->IsTriangleMesh())
@@ -253,6 +252,7 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 
 	std::vector<_Tri> triangles;
 	std::vector<Vertex> vertices;
+	bool wayTooManyWeights = false;
 	for (int f = 0; f < fbxMesh->GetPolygonCount(); f++)
 	{
 		int startIndex = fbxMesh->GetPolygonVertexIndex(f);
@@ -335,7 +335,7 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 
 			if (vert.weights.size() > 4)
 			{
-				printf("Warning: There are more than 4 joints that influence a single vertex. Attempting to fix that.\n");
+				wayTooManyWeights = true;
 				
 				std::sort(vert.weights.begin(), vert.weights.end(), 
 					[](const OBWeight& a, const OBWeight& b) -> bool
@@ -374,9 +374,21 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		}
 		triangles.push_back(t);
 	}
+	if (wayTooManyWeights)
+		printf("!!! (Warning) There is one or several vertices that are influenced\n"
+			   "              by more than 4 nodes. A fix has been applied,\n"
+			   "              but it modified weight data for those vertices,\n"
+			   "              which may have produced undesirable results.\n");
 
 	StripGroupList sgList;
-	ConvertMeshToTriangleStrips(sdkManager, sgList, node, triangles, vertices);
+	int r = ConvertMeshToTriangleStrips(sdkManager, sgList, node, triangles, vertices);
+
+	if (!r)
+	{
+		printf("!!! (Error) Conversion of the mesh geometry data has\n"
+			   "            failed. This mesh is possibly non-manifold.\n");
+		return 0;
+	}
 
 	mesh.primLists = new OBPrimLists();
 	mesh.primLists->lists.resize(sgList.size());
@@ -400,10 +412,13 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 		mesh.materialRefList->list[i] = (int) node->GetMaterial(i)->GetUserDataPtr();
 
 	int totalStripCount = sgList[0].size() + (sgList.size() > 1 ? sgList[1].size() : 0);
-	printf("\tTotal strip count: %d\n", (int) totalStripCount);
-	printf("\tFull weight strip count: %d\n", (int) sgList[0].size());
+	
+	printf("GEOMETRY INFORMATION\n"
+		   "   Total count of triangle strips:       %d\n"
+		   "   Count of full-weight triangle strips: %d\n",
+		   (int) totalStripCount, (int) sgList[0].size());
 	if (sgList.size() > 1)
-		printf("\tPart weight strip count: %d\n", (int) sgList[1].size());
+		printf("   Count of part-weight triangle strips: %d\n", (int) sgList[1].size());
 
 	mesh.tStripMaterialList = new OBTStripMaterialList();
 	mesh.tStripMaterialList->list.reserve(totalStripCount);
@@ -471,23 +486,36 @@ static void FillMesh(FbxManager* sdkManager, OBMesh& mesh, FbxNode* node)
 			}
 		}
 		
+		if (skin->GetClusterCount() > 32)
+			printf("!!! (Warning) More than 32 nodes affect a single mesh.\n"
+				   "              Model may appear glitched in-game or crash it.\n"
+				   "              A manual fix is required.\n");
+
 		mesh.jointRefList->list.resize(skin->GetClusterCount());
 		for (int i = 0; i < skin->GetClusterCount(); i++)
 			mesh.jointRefList->list[i] = (int) skin->GetCluster(i)->GetLink()->GetUserDataPtr();
 	}
 	FillRenderAttributes(mesh, node);
+
+	return 1;
 }
 
-static void FillMeshes(FbxManager* sdkManager, OBModel& model, FbxScene* scene, std::vector<FbxMesh*>& meshes)
+static int FillMeshes(FbxManager* sdkManager, OBModel& model, FbxScene* scene, std::vector<FbxMesh*>& meshes)
 {
 	model.meshList = new OBMeshList();
 	model.meshList->list.resize(meshes.size());
 	for (int i = 0; i < meshes.size(); i++)
 	{
 		int id = (int) meshes[i]->GetUserDataPtr();
-		printf("[FillMeshes] %s\n", meshes[i]->GetNode()->GetName());
-		FillMesh(sdkManager, model.meshList->list[id], meshes[i]->GetNode());
+		printf("========== %s ==========\n", meshes[i]->GetNode()->GetName());
+		if (!FillMesh(sdkManager, model.meshList->list[id], meshes[i]->GetNode()))
+		{
+			printf("An error has been encountered while converting a mesh.\n"
+				   "Aborting the process\n\n");
+			return 0;
+		}
 	}
+	return 1;
 }
 
 static void NumberMeshes(FbxScene* scene, std::vector<FbxMesh*>& meshes)
@@ -648,7 +676,7 @@ static void FillHierarchy(OBHierarchy& hie, FbxScene* scene, std::vector<FbxNode
 	}
 }
 
-static void FillNbdScene(FbxManager* sdkManager, OBNbdScene& nbdScene, FbxScene* scene, std::vector<std::string>& textureNames)
+static int FillNbdScene(FbxManager* sdkManager, OBNbdScene& nbdScene, FbxScene* scene, std::vector<std::string>& textureNames)
 {
 	std::vector<FbxMesh*> meshes;
 	std::vector<FbxNode*> nodes;
@@ -661,7 +689,9 @@ static void FillNbdScene(FbxManager* sdkManager, OBNbdScene& nbdScene, FbxScene*
 	FillMaterials(*nbdScene.model, scene);
 	NumberMeshes(scene, meshes);
 	FillHierarchy(*nbdScene.hierarchy, scene, nodes);
-	FillMeshes(sdkManager, *nbdScene.model, scene, meshes);
+	if (!FillMeshes(sdkManager, *nbdScene.model, scene, meshes))
+		return 0;
+	return 1;
 }
 
 static FbxScene* LoadFbxScene(FbxManager* sdkManager, const char* filepath)
@@ -734,16 +764,24 @@ int CmdConvertToNBD(int count, char** argv)
 		nbd.textureType = OBType::TextureData;
 		
 		printf("Loading in the main model...\n\n");
-		FillNbdScene(sdkManager, nbd.model, scene, textureNames);
+		if (!FillNbdScene(sdkManager, nbd.model, scene, textureNames))
+		{
+			printf("Failed to convert the main model.\n");
+			return 0;
+		}
 
 		if (hasAddon)
 		{
 			printf("Loading in the addon model...\n\n");
 			FbxScene* addonScene = LoadFbxScene(sdkManager, addonName.c_str());
-			FillNbdScene(sdkManager, nbd.addon, addonScene, textureNames);
+			if (!FillNbdScene(sdkManager, nbd.addon, addonScene, textureNames))
+			{
+				printf("Failed to convert the main model.\n");
+				return 0;
+			}
 		}
 
-		printf("Converting the textures...\n\n");
+		printf("Converting the textures...\n");
 		ConvertTextures(nbd, f_fbx, textureNames);
 
 		printf("Loading in the shadow...\n");
