@@ -6,7 +6,7 @@
 					  NOT C++		
  */
 
-int CommandCount = 4;
+int CommandCount = 5;
 Command CommandList[] =
 {
 	{
@@ -41,6 +41,18 @@ Command CommandList[] =
 			{INPUT_FILEOPEN, "in_netbio00", "Input NETBIO00.DAT"},
 			{INPUT_INTEGER, "scenario_id", "Scenario ID"},
 			{INPUT_FOLDER, "out_folder", "Output folder"},
+		}
+	},
+	{
+		"BuildScenarioAFS",
+		"Builds the scenario AFS from a folder",
+		CmdBuildScenarioAFS,
+		3,
+		(Input[])
+		{
+			{INPUT_FOLDER, "in_folder", "Input folder with scenario data"},
+			{INPUT_FILESAVE, "out_afs", "Output scenario AFS"},
+			{INPUT_FILESAVE, "out_scenario_toc", "Output rXXX_h.bin table of contents file"},
 		}
 	},
 	{

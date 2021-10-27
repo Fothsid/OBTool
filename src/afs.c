@@ -87,6 +87,17 @@ void* AFSReadFileData(FILE* fp, AFSLdEntry* entry)
 
 #define AlignTo2048(X) (((X) + 0x7FF) & ~0x7FF)
 
+void AlignFileTo2048(FILE* fp)
+{
+	size_t pos = ftell(fp);
+	uint32_t zeroesToWrite = AlignTo2048(pos) - pos;
+	for (int i = 0; i < zeroesToWrite; i++)
+	{
+		uint8_t zero = 0;
+		fwrite(&zero, 1, 1, fp);
+	}
+}
+
 int AFSCreate(FILE* fp, AFSBuildEntry* entries, int count)
 {
 	if (!fp)
@@ -100,16 +111,18 @@ int AFSCreate(FILE* fp, AFSBuildEntry* entries, int count)
 
 	fwrite(&header, sizeof(AFSHeader), 1, fp);
 	size_t pairBegin = ftell(fp);
-	size_t fullHeaderSize = sizeof(AFSHeader) + ((count + 1) * sizeof(AFSPair));
-	size_t zeroesToWrite = AlignTo2048(fullHeaderSize) - fullHeaderSize;
-	for (int i = 0; i < zeroesToWrite; i++)
-	{
-		uint8_t zero = 0;
-		fwrite(&zero, 1, 1, fp);
-	}
+	uint32_t fullHeaderSize = sizeof(AFSHeader) + ((count + 1) * sizeof(AFSPair));
 
-	size_t tocSize = sizeof(AFSTOCEntry) * count;
+	uint32_t tocSize = sizeof(AFSTOCEntry) * count;
 	AFSTOCEntry* tocBuffer = (AFSTOCEntry*) malloc(tocSize);
+	fwrite(tocBuffer, tocSize, 1, fp);
+
+	uint32_t pairSize = sizeof(AFSPair) * (count+1);
+	AFSPair* pairs = (AFSPair*) malloc(pairSize);
+	memset(pairs, 0, pairSize);
+
+	fwrite(pairs, pairSize, 1, fp);
+	AlignFileTo2048(fp);
 
 	for (int i = 0; i < count; i++)
 	{
@@ -117,35 +130,27 @@ int AFSCreate(FILE* fp, AFSBuildEntry* entries, int count)
 		AFSBuildEntry* e = &entries[i];
 		AFSTOCEntry* t = &tocBuffer[i];
 		void* data = e->readData(t, e->name, i);
-
-		fwrite(data, t->fileSize, 1, fp);
-		zeroesToWrite = AlignTo2048(t->fileSize) - t->fileSize;
-		for (int i = 0; i < zeroesToWrite; i++)
+		if (data)
 		{
-			uint8_t zero = 0;
-			fwrite(&zero, 1, 1, fp);
+			fwrite(data, t->fileSize, 1, fp);
+			AlignFileTo2048(fp);
+			e->free(data);
 		}
 
-		size_t endOffset = ftell(fp);
-		fseek(fp, pairBegin + (i * sizeof(AFSPair)), SEEK_SET);
-		AFSPair pair = {currentOffset - begin, t->fileSize};
-		fwrite(&pair, sizeof(AFSPair), 1, fp);
-		fseek(fp, endOffset, SEEK_SET);
-		e->free(data);
+		pairs[i].offset = currentOffset - begin;
+		pairs[i].size = t->fileSize;
 	}
 
 	size_t lastDataOffset = ftell(fp);
-	fseek(fp, pairBegin + (count * sizeof(AFSPair)), SEEK_SET);
-	AFSPair pair = {lastDataOffset - begin, tocSize};
-	fwrite(&pair, sizeof(AFSPair), 1, fp);
+	pairs[count].offset = lastDataOffset - begin;
+	pairs[count].size = tocSize;
+
+	fseek(fp, pairBegin, SEEK_SET);
+	fwrite(pairs, pairSize, 1, fp);
+
 	fseek(fp, lastDataOffset, SEEK_SET);
 	fwrite(tocBuffer, tocSize, 1, fp);
-	zeroesToWrite = AlignTo2048(tocSize) - tocSize;
-	for (int i = 0; i < zeroesToWrite; i++)
-	{
-		uint8_t zero = 0;
-		fwrite(&zero, 1, 1, fp);
-	}
+	AlignFileTo2048(fp);
 
 	free(tocBuffer);
 	return 1;

@@ -26,6 +26,7 @@ set(SRC
 	src/convert_to_fbx.cpp
 	src/convert_to_nbd.cpp
 	src/extract_scenario_afs.cpp
+	src/build_scenario_afs.cpp
 	src/patch_nbd_textures.cpp
 
 	# http://www.codercorner.com/Strips.htm

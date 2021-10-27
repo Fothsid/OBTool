@@ -39,6 +39,13 @@ void ExtractScenarioAFS(FILE* fp, int begin, AFSLdEntry* scenarioAfs, AFSLdEntry
 							char* pch = strstr(scenarioToc[i].name, ".sld");
 							if (pch != NULL)
 								strncpy(pch, ".png", 4);
+							else
+							{
+								if (strlen(scenarioToc[i].name) <= (31-4))
+								{
+									strcat(scenarioToc[i].name, ".png");
+								}
+							}
 						}
 						int length = snprintf(buffer, 2048, "%s\n", scenarioToc[i].name);
 						fwrite(buffer, length, 1, isTexture ? scenarioTextureList : scenarioFileList);
