@@ -20,9 +20,13 @@ set(SRC
 	src/tim2.c
 	src/tim2utils.c
 	src/tristrip.cpp
+	src/afs.c
+	src/imageindexing.cpp
+
 	src/convert_to_fbx.cpp
 	src/convert_to_nbd.cpp
-	src/imageindexing.cpp
+	src/extract_scenario_afs.cpp
+	src/patch_nbd_textures.cpp
 
 	# http://www.codercorner.com/Strips.htm
 	src/striper/Adjacency.cpp
