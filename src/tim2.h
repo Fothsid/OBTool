@@ -25,7 +25,7 @@ typedef struct _tagTIM2Header
 	uint8_t version,
 	        largeHeader;
 	uint16_t imageCount;
-	uint16_t tbp; /* NOTE: Exclusive to RE Outbreak's NPC model textures. UPD: actually I'm not really sure whether it's really TBP0.*/
+	uint16_t globalTextureId; /* Warning: out of TM2 spec. Exclusive to RE: Outbreak. */
 	uint8_t padding[6];
 } TIM2Header;
 
@@ -49,6 +49,22 @@ typedef struct _tagTIM2Image
 	         gsTexClut;
 } TIM2Image;
 
+typedef struct _tagGsTex0
+{
+	uint32_t TBP0  : 14;
+	uint32_t TBW   :  6;
+	uint32_t PSM   :  6;
+	uint32_t TW    :  4;
+	uint32_t TH    :  4;
+	uint32_t TCC   :  1;
+	uint32_t TFX   :  2;
+	uint32_t CBP   : 14;
+	uint32_t CPSM  :  4;
+	uint32_t CSM   :  1;
+	uint32_t CSA   :  5;
+	uint32_t CLD   :  3;
+} GsTex0;
+
 typedef struct _tagTIM2Mipmap
 {
 	uint64_t gsMipTbp1,
@@ -71,6 +87,7 @@ void*       TIM2_GetImageData (TIM2Image* img, int mipmapLevel);
 void*       TIM2_GetClutData  (TIM2Image* img);
 uint32_t    TIM2_GetClutColor (TIM2Image* img, int clutId, int id);
 uint32_t    TIM2_GetTexel     (TIM2Image* img, int mipmapLevel, int x, int y, int clutId);
+void        TIM2_CorrectGsTex (TIM2Image* img);
 void        TIM2_ConvToRGBA32 (TIM2Image* img, void* output, int clutId);
 
 #ifdef __cplusplus

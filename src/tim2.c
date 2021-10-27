@@ -193,6 +193,59 @@ uint32_t TIM2_GetTexel(TIM2Image* img, int mipmapLevel, int x, int y, int clutId
 	return 0;
 }
 
+const int tab64[64] = 
+{
+	63,  0, 58,  1, 59, 47, 53,  2,
+	60, 39, 48, 27, 54, 33, 42,  3,
+	61, 51, 37, 40, 49, 18, 28, 20,
+	55, 30, 34, 11, 43, 14, 22,  4,
+	62, 57, 46, 52, 38, 26, 32, 41,
+	50, 36, 17, 19, 29, 10, 13, 21,
+	56, 45, 25, 31, 35, 16,  9, 12,
+	44, 24, 15,  8, 23,  7,  6,  5
+};
+
+int ilog2(uint64_t value)
+{
+	value |= value >> 1;
+	value |= value >> 2;
+	value |= value >> 4;
+	value |= value >> 8;
+	value |= value >> 16;
+	value |= value >> 32;
+	return tab64[((uint64_t)((value - (value >> 1))*0x07EDD5E59A4E28C2)) >> 58];
+}
+
+static uint32_t _PSMConvTable[5] = 
+{
+	2, 1, 0, 20, 19
+};
+
+static uint32_t _CPSMConvTable[5] =
+{
+	2, 0, 0, 0, 0
+};
+
+void TIM2_CorrectGsTex(TIM2Image* img)
+{
+	GsTex0 tex0 = {0};
+	tex0.TBP0 = 0;
+	tex0.TBW  = 0; // img->imageWidth / 64;
+	tex0.PSM  = _PSMConvTable[img->imageType];
+	tex0.TW   = ilog2(img->imageWidth);
+	tex0.TH   = ilog2(img->imageHeight);
+	tex0.TCC  = 0; // Unsure what this does
+	tex0.TFX  = 0;
+	tex0.CBP  = 0;
+	tex0.CPSM = _CPSMConvTable[img->clutType & 0x7F];
+	tex0.CSM  = img->clutType & 0x80 ? 1 : 0;
+	tex0.CSA  = 0;
+	tex0.CLD  = 0;
+
+	img->gsTex0 = *((uint64_t*) &tex0);
+	img->gsTex1 = 0;
+}
+
 void TIM2_ConvToRGBA32 (TIM2Image* img, void* output, int clutId)
 {
 	if (img->imageType >= 6 || img->imageType == TIM2_NONE)
