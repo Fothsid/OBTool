@@ -143,7 +143,10 @@ static void FillTextures(OBModel& model, FbxScene* scene)
 	model.textureList->list.resize(scene->GetTextureCount());
 	for (int i = 0; i < scene->GetTextureCount(); i++)
 	{
-		model.textureList->list[i].id = i;
+		FbxTexture* texture = scene->GetTexture(i);
+		FbxFileTexture* fileTexture = FbxCast<FbxFileTexture>(texture);
+
+		model.textureList->list[i].id = (int) fileTexture->GetUserDataPtr();
 		model.textureList->list[i].width = 256; // Doesn't matter that much
 		model.textureList->list[i].height = 256;
 		model.textureList->list[i].tiling = 0;
@@ -194,7 +197,16 @@ static void FillMaterials(OBModel& model, FbxScene* scene)
 		mat->textures.resize(1);
 		if (lambert->Diffuse.GetSrcObjectCount() > 0 && lambert->Diffuse.GetSrcObject())
 		{
-			mat->textures[0] = (int)lambert->Diffuse.GetSrcObject()->GetUserDataPtr();
+			int texId = 0;
+			for (int t = 0; t < scene->GetTextureCount(); t++)
+			{
+				if (lambert->Diffuse.GetSrcObject() == scene->GetTexture(t))
+				{
+					texId = t;
+					break;
+				}
+			}
+			mat->textures[0] = texId;
 		}
 		else
 		{
@@ -372,12 +384,12 @@ static int FillMesh(FbxManager* sdkManager, bool isRoom, OBMesh& mesh, FbxNode* 
 						{
 							case FbxGeometryElement::eDirect:
 							{
-								c = elementColor->GetDirectArray().GetAt(vertexId);
+								c = elementColor->GetDirectArray().GetAt(startIndex+v);
 								break;
 							}
 							case FbxGeometryElement::eIndexToDirect:
 							{
-								int id = elementColor->GetIndexArray().GetAt(vertexId);
+								int id = elementColor->GetIndexArray().GetAt(startIndex+v);
 								c = elementColor->GetDirectArray().GetAt(id);
 								break;
 							}
