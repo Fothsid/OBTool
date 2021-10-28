@@ -110,7 +110,7 @@ void* OutbreakPngToTm2(const char* input, uint16_t globalTextureId, int* x, int*
 	img->imageWidth = width;
 	img->imageHeight = height;
 
-	TIM2_CorrectGsTex(img);
+	//TIM2_CorrectGsTex(img);
 	
 	uint32_t* clut = TIM2_GetClutData(img);
 	uint8_t* image = (uint8_t*) TIM2_GetImageData(img, 0);
