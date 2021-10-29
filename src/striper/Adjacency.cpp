@@ -168,11 +168,13 @@ bool Adjacencies::CreateDatabase()
 		udword Face = FaceNb[Sorted[i]];		// Owner face
 		udword Ref0 = VRefs0[Sorted[i]];		// Vertex ref #1
 		udword Ref1 = VRefs1[Sorted[i]];		// Vertex ref #2
-		if(Ref0==LastRef0 && Ref1==LastRef1)
+		if(Ref0==LastRef0 && Ref1==LastRef1 && Count < 3)
 		{
 			// Current edge is the same as last one
 			TmpBuffer[Count++] = Face;				// Store face number
-			if(Count==3)
+
+			/* This feels VERY inappropriate to comment out. */
+			/*if(Count==3)
 			{
 				RELEASEARRAY(VRefs1);
 				RELEASEARRAY(VRefs0);
@@ -181,12 +183,19 @@ bool Adjacencies::CreateDatabase()
 				printf("[Striper] Non-manifold geometry detected.\n");
 #endif 
 				return false;				// Only works with manifold meshes (i.e. an edge is not shared by more than 2 triangles)
-			}
+			}*/
 		}
 		else
 		{
+			if (Count == 3)
+			{
+				printf("!!! (Warning) Non-manifold geometry detected.\n"
+					   "              Mesh may appear to have missing faces\n"
+					   "              or have other glitches.\n");
+			}
+			
 			// Here we have a new edge (LastRef0, LastRef1) shared by Count triangles stored in TmpBuffer
-			if(Count==2)
+			if(Count>=2)
 			{
 				// if Count==1 => edge is a boundary edge: it belongs to a single triangle.
 				// Hence there's no need to update a link to an adjacent triangle.
