@@ -63,6 +63,9 @@ int BuildMOMO(FILE* fp, int fileCount, char** files)
 
 	}
 	AlignFileTo32(fp);
+
+	fseek(fp, pairsBegin, SEEK_SET);
+	fwrite(pairs, pairsSize, 1, fp);
 	return 1;
 }
 
