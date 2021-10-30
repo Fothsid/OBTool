@@ -63,12 +63,21 @@ void* __AFSBuildScenarioFile(AFSTOCEntry* out, const char* name, int id)
 		return NULL;
 	}
 	fseek(fp, 0, SEEK_END);
-	out->fileSize = (uint32_t) ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	void* data = malloc(out->fileSize);
-	fread(data, out->fileSize, 1, fp);
-	fclose(fp);
+	out->fileSize = (int32_t) ftell(fp);
+	void* data;
+	if (out->fileSize)
+	{
+		fseek(fp, 0, SEEK_SET);
+		data = malloc(out->fileSize);
+		fread(data, out->fileSize, 1, fp);
+	}
+	else
+	{
+		out->fileSize = -2047;
+		return NULL;
+	}
 
+	fclose(fp);
 	return data;
 }
 

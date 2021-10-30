@@ -6,7 +6,7 @@
 					  NOT C++		
  */
 
-int CommandCount = 5;
+int CommandCount = 8;
 Command CommandList[] =
 {
 	{
@@ -65,6 +65,39 @@ Command CommandList[] =
 			{INPUT_FILEOPEN, "in_nbd", "Input NBD file"},
 			{INPUT_FILESAVE, "out_nbd", "Output patched NBD file"},
 			{INPUT_INTEGERARRAY, "id0, id1, id2, ...", "Global Texture IDs"},
+		}
+	},
+	{
+		"BuildMOMO",
+		"Builds a MOMO file from a list of files.",
+		CmdBuildMOMO,
+		2,
+		(Input[])
+		{
+			{INPUT_FILESAVE, "out_momo", "Output MOMO file"},
+			{INPUT_INTEGERARRAY, "file0, file1, file2, ...", "File names to pack"},
+		}
+	},
+	{
+		"ExtractAFS",
+		"Extracts files from an AFS.",
+		CmdExtractAFS,
+		2,
+		(Input[])
+		{
+			{INPUT_FILEOPEN, "in_afs", "Input AFS file"},
+			{INPUT_FOLDER, "out_folder", "Output folder"},
+		}
+	},
+	{
+		"BuildAFS",
+		"Builds an AFS file from a folder",
+		CmdBuildAFS,
+		2,
+		(Input[])
+		{
+			{INPUT_FOLDER, "in_folder", "Input folder"},
+			{INPUT_FILEOPEN, "out_afs", "Output AFS"},
 		}
 	},
 };

@@ -51,7 +51,7 @@ void ExtractScenarioAFS(FILE* fp, int begin, AFSLdEntry* scenarioAfs, AFSLdEntry
 						fwrite(buffer, length, 1, isTexture ? scenarioTextureList : scenarioFileList);
 						snprintf(buffer, 2048, "%s/%s", outputPath, scenarioToc[i].name);
 
-						printf("%s\n", scenarioToc[i].name);
+						printf("%s\n", scenarioToc[i].name, scenarioToc[i].size);
 						void* data = (void*) AFSReadFileData(fp, &scenarioToc[i]);
 						if (isTexture)
 						{
@@ -64,14 +64,17 @@ void ExtractScenarioAFS(FILE* fp, int begin, AFSLdEntry* scenarioAfs, AFSLdEntry
 						else
 						{
 							FILE* ofp = fopen(buffer, "wb");
-							if (ofp)
+							if (ofp && (scenarioToc[i].size > 0))
 							{
 								fwrite(data, scenarioToc[i].size, 1, ofp);
 								fclose(ofp);
 							}
 							else
 							{
-								fprintf(stderr, "[ExtractScenarioAFS] Could not open %s for writing.\n", scenarioToc[i].name);
+								if (ofp)
+									fclose(ofp);
+								else
+									fprintf(stderr, "[ExtractScenarioAFS] Could not open %s for writing.\n", scenarioToc[i].name);
 							}
 						}
 						free(data);

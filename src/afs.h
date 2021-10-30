@@ -16,21 +16,21 @@ typedef struct
 typedef struct
 {
 	uint32_t offset;
-	uint32_t size;
+	int32_t size;
 } AFSPair;
 
 typedef struct
 {
 	char name[32];
 	AFSDate date;
-	uint32_t fileSize;
+	int32_t fileSize;
 } AFSTOCEntry;
 
 typedef struct
 {
 	char name[32];
 	AFSDate date;
-	uint32_t size;
+	int32_t size;
 	uint32_t offset;
 } AFSLdEntry;
 

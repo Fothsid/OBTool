@@ -9,6 +9,9 @@ int CmdConvertToNBD(int count, char** argv);
 int CmdExtractScenarioAFS(int count, char** argv);
 int CmdBuildScenarioAFS(int count, char** argv);
 int CmdPatchNBDTextures(int count, char** argv);
+int CmdBuildMOMO(int count, char** argv);
+int CmdExtractAFS(int count, char** argv);
+int CmdBuildAFS(int count, char** argv);
 
 enum InputType
 {
