@@ -68,6 +68,17 @@ Command CommandList[] =
 		}
 	},
 	{
+		"ExtractMOMO",
+		"Extracts files from a MOMO container.",
+		CmdExtractMOMO,
+		2,
+		(Input[])
+		{
+			{INPUT_FILEOPEN, "in_momo", "Input MOMO file"},
+			{INPUT_FILESAVE, "out_basename", "Base name for files"},
+		}
+	},
+	{
 		"BuildMOMO",
 		"Builds a MOMO file from a list of files.",
 		CmdBuildMOMO,
@@ -75,7 +86,7 @@ Command CommandList[] =
 		(Input[])
 		{
 			{INPUT_FILESAVE, "out_momo", "Output MOMO file"},
-			{INPUT_INTEGERARRAY, "file0, file1, file2, ...", "File names to pack"},
+			{INPUT_FILELIST, "file0, file1, file2, ...", "File names to pack"},
 		}
 	},
 	{

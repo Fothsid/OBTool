@@ -28,6 +28,7 @@ set(SRC
 	src/extract_scenario_afs.cpp
 	src/build_scenario_afs.cpp
 	src/patch_nbd_textures.cpp
+	src/extract_momo.cpp
 	src/build_momo.cpp
 	src/extract_afs.cpp
 	src/build_afs.cpp
