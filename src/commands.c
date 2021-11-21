@@ -6,7 +6,7 @@
 					  NOT C++		
  */
 
-int CommandCount = 8;
+int CommandCount = 9;
 Command CommandList[] =
 {
 	{
